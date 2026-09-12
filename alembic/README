@@ -1,0 +1,4 @@
+Alembic migrations for FinSight.
+
+Phase 1 ships a no-op baseline revision only. Domain tables arrive in later phases.
+Generate new revisions from the repo root with `alembic revision --autogenerate -m "..."`.
