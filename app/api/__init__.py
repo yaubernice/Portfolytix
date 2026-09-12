@@ -4,5 +4,5 @@ from app.api.routes import health
 
 
 def register_routes(app: FastAPI) -> None:
-    """Attach HTTP routers. Handlers stay thin; domain logic belongs in services later."""
+    """Attach HTTP routers. Handlers stay thin; services own domain logic later."""
     app.include_router(health.router)
