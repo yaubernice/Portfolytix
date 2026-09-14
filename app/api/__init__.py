@@ -1,8 +1,22 @@
-from fastapi import FastAPI
+from fastapi import FastAPI, Request
+from fastapi.responses import JSONResponse
 
-from app.api.routes import health
+from app.api.routes import health, holdings, portfolios, transactions
+from app.core.exceptions import AppError
 
 
 def register_routes(app: FastAPI) -> None:
-    """Attach HTTP routers. Handlers stay thin; services own domain logic later."""
+    """Attach HTTP routers. Handlers stay thin; services own domain logic."""
     app.include_router(health.router)
+    app.include_router(portfolios.router)
+    app.include_router(transactions.router)
+    app.include_router(holdings.router)
+
+
+def register_exception_handlers(app: FastAPI) -> None:
+    @app.exception_handler(AppError)
+    async def handle_app_error(_request: Request, exc: AppError) -> JSONResponse:
+        return JSONResponse(
+            status_code=exc.status_code,
+            content={"detail": exc.message},
+        )

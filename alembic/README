@@ -1,4 +1,8 @@
 Alembic migrations for FinSight.
 
-Phase 1 ships a no-op baseline revision only. Domain tables arrive in later phases.
-Generate new revisions from the repo root with `alembic revision --autogenerate -m "..."`.
+- `0001_baseline` — empty revision so later diffs have a parent.
+- `0002_phase2_models` — users, portfolios, securities, prices, transactions.
+
+Generate new revisions from the repo root with
+`alembic revision --autogenerate -m "..."`. Never use
+`Base.metadata.create_all()` in application startup.

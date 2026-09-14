@@ -1,1 +1,1 @@
-"""HTTP route modules. Phase 1 exposes only health."""
+"""HTTP route modules."""

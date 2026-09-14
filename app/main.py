@@ -4,7 +4,7 @@ from contextlib import asynccontextmanager
 
 from fastapi import FastAPI, Request, Response
 
-from app.api import register_routes
+from app.api import register_exception_handlers, register_routes
 from app.core.config import settings
 from app.core.logging import setup_logging
 from app.db.session import engine
@@ -27,11 +27,15 @@ async def lifespan(_app: FastAPI) -> AsyncIterator[None]:
 app = FastAPI(
     title=settings.app_name,
     version="0.1.0",
-    description="Phase 1 backend foundation. Domain APIs are not implemented yet.",
+    description=(
+        "Phase 3: portfolio and transaction API. "
+        "Holdings are derived from the ledger. Auth is not implemented yet."
+    ),
     lifespan=lifespan,
 )
 
 register_routes(app)
+register_exception_handlers(app)
 
 
 @app.middleware("http")
