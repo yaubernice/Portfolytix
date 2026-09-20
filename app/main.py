@@ -1,3 +1,9 @@
+#Configure startup/shutdown
+#Create FastAPI app
+#Register routes
+#Register exception handlers
+#Log requests
+
 import logging
 from collections.abc import AsyncIterator, Awaitable, Callable
 from contextlib import asynccontextmanager
@@ -20,7 +26,7 @@ async def lifespan(_app: FastAPI) -> AsyncIterator[None]:
         extra={"environment": settings.environment, "app": settings.app_name},
     )
     yield
-    engine.dispose()
+    engine.dispose() #close all connections to the database
     logger.info("shutdown")
 
 
@@ -28,14 +34,14 @@ app = FastAPI(
     title=settings.app_name,
     version="0.1.0",
     description=(
-        "Phase 3: portfolio and transaction API. "
-        "Holdings are derived from the ledger. Auth is not implemented yet."
+        "Phase 4: portfolio API plus time-weighted analytics. "
+        "Not investment advice. Auth is not implemented yet."
     ),
     lifespan=lifespan,
 )
 
-register_routes(app)
-register_exception_handlers(app)
+register_routes(app) #Attach API routes to the app
+register_exception_handlers(app) #Attach exception handlers to the app
 
 
 @app.middleware("http")

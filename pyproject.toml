@@ -1,7 +1,7 @@
 [project]
 name = "finsight"
 version = "0.1.0"
-description = "Personal finance analytics — Phase 3 portfolio API"
+description = "Personal finance analytics — Phase 4 portfolio analytics"
 readme = "README.md"
 requires-python = ">=3.12"
 dependencies = [

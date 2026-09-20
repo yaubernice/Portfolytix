@@ -1,7 +1,7 @@
 from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse
 
-from app.api.routes import health, holdings, portfolios, transactions
+from app.api.routes import analytics, health, holdings, portfolios, transactions
 from app.core.exceptions import AppError
 
 
@@ -11,6 +11,7 @@ def register_routes(app: FastAPI) -> None:
     app.include_router(portfolios.router)
     app.include_router(transactions.router)
     app.include_router(holdings.router)
+    app.include_router(analytics.router)
 
 
 def register_exception_handlers(app: FastAPI) -> None:

@@ -51,6 +51,6 @@ def update_portfolio(
 def delete_portfolio(
     portfolio_id: UUID,
     service: PortfolioService = Depends(get_portfolio_service),
-) -> Response:
+) -> Response: 
     service.delete_portfolio(portfolio_id)
     return Response(status_code=status.HTTP_204_NO_CONTENT)

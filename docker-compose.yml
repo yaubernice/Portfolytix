@@ -25,6 +25,8 @@ services:
       ENVIRONMENT: local
       LOG_LEVEL: INFO
       DATABASE_URL: postgresql+psycopg://finsight:finsight@db:5432/finsight
+      RISK_FREE_RATE: "0.05"
+      TRADING_DAYS_PER_YEAR: "252"
     depends_on:
       db:
         condition: service_healthy

@@ -1,6 +1,6 @@
 # FinSight
 
-Personal finance analytics API. This repository currently contains **Phases 1–3**: FastAPI, PostgreSQL, SQLAlchemy models, Alembic, synthetic market-data seed, and a portfolio/transaction REST API. Holdings are derived from the ledger. There is no auth, no Redis, and no frontend.
+Personal finance analytics API. This repository currently contains **Phases 1–4**: FastAPI, PostgreSQL, SQLAlchemy models, Alembic, synthetic market-data seed, a portfolio/transaction REST API, and time-weighted portfolio analytics. Holdings are derived from the ledger. There is no auth, no Redis, and no frontend.
 
 ## Overview
 
@@ -8,10 +8,10 @@ The running stack exposes:
 
 - `GET /health` → `{"status":"ok"}`
 - `GET /docs` — FastAPI's interactive OpenAPI UI
-- Portfolio CRUD, transactions, and derived holdings (see [API Documentation](#api-documentation))
+- Portfolio CRUD, transactions, derived holdings, and analytics (see [API Documentation](#api-documentation))
 - PostgreSQL 16 on the Compose network (published on host port `15432`)
 
-Schema changes go through Alembic, not `Base.metadata.create_all()`. Phase 2 added the five domain tables. Phase 3 adds HTTP access to portfolios and fills.
+Schema changes go through Alembic, not `Base.metadata.create_all()`. Phase 2 added the five domain tables. Phase 3 adds HTTP access to portfolios and fills. Phase 4 adds time-weighted return, volatility, Sharpe, drawdown, and allocation.
 
 ## Why I built this
 
@@ -19,7 +19,7 @@ I wanted a realistic place to practice a production-shaped backend: settings fro
 
 ## Architecture
 
-### Current (Phase 3 — built)
+### Current (Phase 4 — built)
 
 ```text
                    host :18421
@@ -27,17 +27,18 @@ I wanted a realistic place to practice a production-shaped backend: settings fro
                         ▼
               ┌─────────────────┐
    Client ──► │  FastAPI        │  /health, /docs
-              │  routers        │  /portfolios, /transactions, /holdings
+              │  routers        │  /portfolios … /analytics
               └────────┬────────┘
                        │ thin handlers
                        ▼
               ┌─────────────────┐
               │ services        │  holdings = Σ BUY − Σ SELL
+              │                 │  TWR, vol, Sharpe, drawdown
               └────────┬────────┘
                        │ repositories
                        ▼
               ┌─────────────────┐
-              │ PostgreSQL      │  host :15432 → container :5432
+              │ PostgreSQL      │  prices.adjusted_close
               └─────────────────┘
 ```
 
@@ -54,8 +55,9 @@ Compose puts `api` and `db` on one user-defined network. The API reaches Postgre
 | Auth / login | Table exists; hashing and JWT are not built |
 | Portfolio REST API | Built |
 | Holdings derived from transactions | Built |
+| Portfolio analytics (TWR, vol, Sharpe, DD) | Built |
+| Screening | Not built |
 | Live market-data API | Not built (seed is synthetic) |
-| Analytics, screening | Not built |
 | Redis, background jobs | Not built |
 | AI features | Not built |
 | Frontend | Not built |
@@ -199,6 +201,7 @@ Interactive docs: http://127.0.0.1:18421/docs after `make up`.
 | `POST` | `/portfolios/{id}/transactions` | Record a BUY or SELL |
 | `GET` | `/portfolios/{id}/transactions` | Ledger, oldest first |
 | `GET` | `/portfolios/{id}/holdings` | Derived positions |
+| `GET` | `/portfolios/{id}/analytics` | TWR, volatility, Sharpe, drawdown, allocation |
 
 Example: BUY 10 AAPL, BUY 5 AAPL, SELL 3 AAPL → holdings show `12` AAPL.
 
@@ -216,11 +219,33 @@ Example: BUY 10 AAPL, BUY 5 AAPL, SELL 3 AAPL → holdings show `12` AAPL.
 
 Tickers are normalized to uppercase. Quantity and price are JSON strings so the client does not round `Decimal` values through IEEE floats. Timestamp defaults to now (UTC).
 
-A SELL that would take the position below zero returns **409**. Unknown user, portfolio, or ticker returns **404**. Money fields that are not `> 0` return **422**.
+A SELL that would take the position below zero returns **409**. Unknown user, portfolio, or ticker returns **404**. Money fields that are not `> 0` return **422**. Analytics without transactions or without prices returns **409**.
 
 ### Why this API shape
 
-Portfolios are a collection; fills belong to one portfolio, so they are nested (`/portfolios/{id}/transactions`). Holdings are a **read model**, not a resource you POST to, so they are `GET` only. We do not expose `security_id` on the write path: the public key for a listing is `ticker`.
+Portfolios are a collection; fills belong to one portfolio, so they are nested (`/portfolios/{id}/transactions`). Holdings are a **read model**, not a resource you POST to, so they are `GET` only. Analytics is another read model over the same ledger plus `prices`. We do not expose `security_id` on the write path: the public key for a listing is `ticker`.
+
+### Analytics assumptions
+
+`GET /portfolios/{id}/analytics` is **not investment advice**. The response includes an `assumptions` object so the method is visible, not hidden in code.
+
+| Choice | What we do | Why |
+| --- | --- | --- |
+| Return | Time-weighted, daily | Strips deposits/withdrawals so a BUY is not a gain |
+| Daily TWR | `(V_t − V_{t-1} − CF_t) / V_{t-1}` | `CF_t` is +BUY notional / −SELL notional |
+| Total return | `Π(1 + r_t) − 1` | Geometric over the sample; **not** annualized |
+| Annualized return | `(1 + TWR)^(252/n) − 1` | Comparable to the 252-day year used for vol |
+| Volatility | sample stdev of daily TWR × √252 | Sample uses n−1; needs ≥ 2 daily returns |
+| Risk-free rate | `RISK_FREE_RATE` annual, default 5% | Teaching placeholder, not a T-bill quote |
+| Sharpe | `(mean(r) − rf/252) / σ_daily` | Arithmetic daily rf. `null` when σ is 0 |
+| Max drawdown | min(wealth / peak − 1) on the TWR index | Always ≤ 0 |
+| Mark | `adjusted_close` on or before the day | Fill price is fallback if no close yet |
+| Cash | No cash sleeve | SELL proceeds leave the portfolio |
+| Allocation | qty × last mark / total MV | Current snapshot, not a time series |
+
+There is still no holdings table. Analytics rebuilds positions from transactions each request, then marks them with the `prices` rows. That is the correct default until Phase 8 measures it on a large dataset.
+
+Alternative we did **not** pick: money-weighted IRR. IRR answers “what compound rate did *this cash-flow schedule* earn?” TWR answers “how did the strategy perform regardless of when money was added?” FinSight’s product question is the second one.
 
 ### Concurrent updates
 
@@ -298,6 +323,8 @@ Copy `.env.example` to `.env` only if you run Uvicorn on the host against the pu
 | `ENVIRONMENT` | Logged on startup |
 | `LOG_LEVEL` | Root log level |
 | `DATABASE_URL` | SQLAlchemy / Alembic URL |
+| `RISK_FREE_RATE` | Annual decimal for Sharpe (default `0.05`) |
+| `TRADING_DAYS_PER_YEAR` | Annualization factor (default `252`) |
 
 Local Compose credentials (`finsight` / `finsight`) are development defaults, not production secrets.
 

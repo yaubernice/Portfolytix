@@ -8,7 +8,6 @@ from app.services.portfolio_service import PortfolioService
 
 router = APIRouter(prefix="/portfolios/{portfolio_id}/holdings", tags=["holdings"])
 
-
 @router.get("", response_model=list[HoldingOut])
 def list_holdings(
     portfolio_id: UUID,

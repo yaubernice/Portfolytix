@@ -30,7 +30,7 @@ class PortfolioService:
         self.securities = SecurityRepository(session)
         self.transactions = TransactionRepository(session)
 
-    def create_portfolio(self, payload: PortfolioCreate) -> PortfolioSummary:
+    def create_portfolio(self, payload: PortfolioCreate) -> PortfolioSummary: 
         if self.users.get(payload.user_id) is None:
             raise NotFoundError(f"User {payload.user_id} not found")
         portfolio = Portfolio(
@@ -40,7 +40,8 @@ class PortfolioService:
         )
         return PortfolioSummary.model_validate(self.portfolios.add(portfolio))
 
-    def list_portfolios(self, user_id: UUID) -> list[PortfolioSummary]:
+#access if user exist, if yes list portfolios and return response schema
+    def list_portfolios(self, user_id: UUID) -> list[PortfolioSummary]: 
         if self.users.get(user_id) is None:
             raise NotFoundError(f"User {user_id} not found")
         return [
@@ -80,11 +81,9 @@ class PortfolioService:
         rows = self.transactions.list_for_portfolio(portfolio_id)
         return [self._transaction_out(row) for row in rows]
 
-    def add_transaction(
+    def add_transaction( 
         self, portfolio_id: UUID, payload: TransactionCreate
     ) -> TransactionOut:
-        # Lock the portfolio row before reading holdings so two concurrent
-        # SELLs cannot both pass the quantity check (PostgreSQL).
         portfolio = self.portfolios.get_for_update(portfolio_id)
         if portfolio is None:
             raise NotFoundError(f"Portfolio {portfolio_id} not found")
@@ -111,7 +110,7 @@ class PortfolioService:
             timestamp=payload.timestamp or datetime.now(UTC),
         )
         saved = self.transactions.add(row)
-        saved.security = security
+        saved.security = security #add security object to the transaction object
         return self._transaction_out(saved)
 
     def _require_portfolio(self, portfolio_id: UUID) -> Portfolio:
@@ -120,7 +119,7 @@ class PortfolioService:
             raise NotFoundError(f"Portfolio {portfolio_id} not found")
         return portfolio
 
-    def _holdings(self, portfolio_id: UUID) -> list[HoldingOut]:
+    def _holdings(self, portfolio_id: UUID) -> list[HoldingOut]: 
         legs = [
             PositionLeg(
                 security_id=row.security_id,
@@ -132,7 +131,7 @@ class PortfolioService:
         ]
         return aggregate_positions(legs)
 
-    def _detail(self, portfolio: Portfolio) -> PortfolioDetail:
+    def _detail(self, portfolio: Portfolio) -> PortfolioDetail: 
         summary = PortfolioSummary.model_validate(portfolio)
         return PortfolioDetail(
             **summary.model_dump(),
