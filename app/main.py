@@ -11,9 +11,11 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI, Request, Response
 
 from app.api import register_exception_handlers, register_routes
+from app.core.cache import get_cache
 from app.core.config import settings
 from app.core.logging import setup_logging
 from app.db.session import engine
+from app.jobs.scheduler import start_scheduler
 
 logger = logging.getLogger(__name__)
 
@@ -25,7 +27,13 @@ async def lifespan(_app: FastAPI) -> AsyncIterator[None]:
         "startup",
         extra={"environment": settings.environment, "app": settings.app_name},
     )
+    cache = get_cache()
+    scheduler = start_scheduler()
     yield
+    if scheduler is not None:
+        scheduler.shutdown(wait=False)
+        logger.info("scheduler_stopped")
+    cache.close()
     engine.dispose() #close all connections to the database
     logger.info("shutdown")
 
@@ -34,7 +42,8 @@ app = FastAPI(
     title=settings.app_name,
     version="0.1.0",
     description=(
-        "Phase 4: portfolio API plus time-weighted analytics. "
+        "Phase 9: portfolio API, analytics, market-data ingest, "
+        "structured screening, query optimization, and Redis caching. "
         "Not investment advice. Auth is not implemented yet."
     ),
     lifespan=lifespan,

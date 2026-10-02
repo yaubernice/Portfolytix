@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import sys
 
+from app.core.cache import commit_and_invalidate, get_cache
 from app.core.config import settings
 from app.core.logging import setup_logging
 from app.db.seed import seed_market_data
@@ -22,7 +23,7 @@ def main() -> int:
     session = SessionLocal()
     try:
         result = seed_market_data(session)
-        session.commit()
+        commit_and_invalidate(session, get_cache())
     except Exception:
         session.rollback()
         raise
@@ -33,6 +34,7 @@ def main() -> int:
         "Seed complete: "
         f"{result['securities']} securities upserted, "
         f"{result['prices_inserted']} new price rows, "
+        f"{result['fundamentals']} fundamental snapshots, "
         f"demo user {result['demo_user_id']}."
     )
     return 0

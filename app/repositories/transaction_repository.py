@@ -13,10 +13,12 @@ class TransactionRepository:
     def list_for_portfolio(self, portfolio_id: UUID) -> list[Transaction]:
         statement = (
             select(Transaction)
+            # analytics needs row.security.ticker, so join the security table
             .options(joinedload(Transaction.security))
             .where(Transaction.portfolio_id == portfolio_id)
             .order_by(Transaction.timestamp, Transaction.created_at, Transaction.id)
         )
+        # unique() collapses joinedload duplicates; returns Transaction objects
         return list(self.session.scalars(statement).unique())
 
     def add(self, transaction: Transaction) -> Transaction:

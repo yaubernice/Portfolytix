@@ -69,7 +69,8 @@ class Fill: #does not want to depend on SQLAlchemy/database objects
         return self.quantity if self.is_buy else -self.quantity
 
 
-@dataclass(frozen=True, slots=True) #frozen=True means once Fill is created its fields cannot be modified
+# frozen=True: once a Fill/CloseBar is created, its fields cannot be modified
+@dataclass(frozen=True, slots=True)
 class CloseBar: #closing price of the security on a given day
     security_id: UUID
     on: date
@@ -116,22 +117,26 @@ class PriceIndex:
                 prices=[bar.close for bar in rows],
             )
 
-    def on_or_before(self, security_id: UUID, on: date) -> Decimal | None: #return the latest price before the requested date
+    def on_or_before(self, security_id: UUID, on: date) -> Decimal | None:
+        # latest price on or before the requested date
         series = self._series.get(security_id)
         if series is None:
             return None
-        index = bisect_right(series.dates, on) - 1 #finds where the date would be inserted while preserving order
+        # insertion point while preserving order; -1 is the last date <= on
+        index = bisect_right(series.dates, on) - 1
         if index < 0:
             return None
         return series.prices[index]
 
-    def latest(self, security_id: UUID) -> Decimal | None: #returns latest available price for a security
+    def latest(self, security_id: UUID) -> Decimal | None:
+        # latest available price for a security
         series = self._series.get(security_id)
         if series is None or not series.prices:
             return None
         return series.prices[-1]
 
-    def all_dates(self) -> set[date]: #gather every date represented by the price series 
+    def all_dates(self) -> set[date]:
+        # every date represented by the price series 
         dates: set[date] = set()
         for series in self._series.values():
             dates.update(series.dates)

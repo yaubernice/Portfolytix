@@ -1,13 +1,18 @@
 from datetime import UTC, datetime
 
 from fastapi.testclient import TestClient
+from sqlalchemy.orm import Session
 
+from app.core.cache import PENDING_BUMPS
 from app.db.models import Security, User
 from tests.api.helpers import create_portfolio
 
 
 def test_buy_buy_sell_net_holdings(
-    client: TestClient, user: User, apple: Security
+    client: TestClient,
+    sqlite_session: Session,
+    user: User,
+    apple: Security,
 ) -> None:
     portfolio = create_portfolio(client, user.id)
     portfolio_id = portfolio["id"]
@@ -25,6 +30,7 @@ def test_buy_buy_sell_net_holdings(
     )
     assert first.status_code == 201
     assert first.json()["ticker"] == "AAPL"
+    assert f"portfolio:{portfolio_id}" in sqlite_session.info[PENDING_BUMPS]
 
     client.post(
         f"/portfolios/{portfolio_id}/transactions",

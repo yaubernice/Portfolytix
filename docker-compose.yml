@@ -16,6 +16,18 @@ services:
       retries: 10
     restart: unless-stopped
 
+  redis:
+    image: redis:7-alpine
+    ports:
+      - "16379:6379"
+    command: ["redis-server", "--save", "", "--appendonly", "no"]
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 3s
+      timeout: 3s
+      retries: 10
+    restart: unless-stopped
+
   api:
     build: .
     ports:
@@ -27,8 +39,22 @@ services:
       DATABASE_URL: postgresql+psycopg://finsight:finsight@db:5432/finsight
       RISK_FREE_RATE: "0.05"
       TRADING_DAYS_PER_YEAR: "252"
+      MARKET_DATA_PROVIDER: stooq
+      MARKET_DATA_API_KEY: ${MARKET_DATA_API_KEY:-}
+      SCHEDULER_ENABLED: "true"
+      MARKET_DATA_CRON: "0 22 * * *"
+      MARKET_DATA_LOOKBACK_DAYS: "7"
+      JOB_STALE_AFTER_SECONDS: "3600"
+      CACHE_ENABLED: "true"
+      REDIS_URL: redis://redis:6379/0
+      CACHE_KEY_PREFIX: finsight
+      ANALYTICS_CACHE_TTL_SECONDS: "300"
+      SCREENING_CACHE_TTL_SECONDS: "300"
+      REDIS_SOCKET_TIMEOUT_SECONDS: "0.2"
     depends_on:
       db:
+        condition: service_healthy
+      redis:
         condition: service_healthy
     restart: unless-stopped
     healthcheck:

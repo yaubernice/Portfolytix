@@ -5,6 +5,7 @@ from uuid import UUID
 
 from sqlalchemy.orm import Session
 
+from app.core.cache import queue_version_bump
 from app.core.exceptions import AppError, ConflictError, NotFoundError
 from app.db.models import Portfolio, Transaction
 from app.db.models.transaction import TransactionType
@@ -71,6 +72,10 @@ class PortfolioService:
     def delete_portfolio(self, portfolio_id: UUID) -> None:
         portfolio = self._require_portfolio(portfolio_id)
         self.portfolios.delete(portfolio)
+        queue_version_bump(
+            self.portfolios.session,
+            f"portfolio:{portfolio_id}",
+        )
 
     def list_holdings(self, portfolio_id: UUID) -> list[HoldingOut]:
         self._require_portfolio(portfolio_id)
@@ -111,6 +116,10 @@ class PortfolioService:
         )
         saved = self.transactions.add(row)
         saved.security = security #add security object to the transaction object
+        queue_version_bump(
+            self.portfolios.session,
+            f"portfolio:{portfolio_id}",
+        )
         return self._transaction_out(saved)
 
     def _require_portfolio(self, portfolio_id: UUID) -> Portfolio:

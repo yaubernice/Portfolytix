@@ -4,7 +4,7 @@ PYTEST ?= $(if $(wildcard .venv/bin/pytest),.venv/bin/pytest,pytest)
 RUFF ?= $(if $(wildcard .venv/bin/ruff),.venv/bin/ruff,ruff)
 ALEMBIC ?= $(if $(wildcard .venv/bin/alembic),.venv/bin/alembic,alembic)
 
-.PHONY: up down logs test lint migrate migrate-host seed seed-host
+.PHONY: up down logs test lint migrate migrate-host seed seed-host ingest ingest-host benchmark-data benchmark-baseline benchmark-optimized benchmark-compare benchmark-cache
 
 up:
 	$(COMPOSE) up --build -d
@@ -32,3 +32,28 @@ seed:
 
 seed-host:
 	$(PYTHON) scripts/seed_database.py
+
+ingest:
+	$(COMPOSE) exec api python scripts/ingest_market_data.py
+
+ingest-host:
+	$(PYTHON) scripts/ingest_market_data.py
+
+benchmark-data:
+	PYTHONPATH=. $(PYTHON) scripts/generate_benchmark_data.py
+
+benchmark-baseline:
+	$(ALEMBIC) downgrade 0004_phase7_fundamentals
+	PYTHONPATH=. $(PYTHON) scripts/benchmark_price_history.py --label baseline
+
+benchmark-optimized:
+	$(ALEMBIC) upgrade head
+	PYTHONPATH=. $(PYTHON) scripts/benchmark_price_history.py --label optimized
+
+benchmark-compare:
+	PYTHONPATH=. $(PYTHON) scripts/compare_benchmarks.py \
+		benchmarks/results/baseline.json \
+		benchmarks/results/optimized.json
+
+benchmark-cache:
+	PYTHONPATH=. $(PYTHON) scripts/benchmark_cache.py --label cache-enabled

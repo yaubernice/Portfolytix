@@ -1,7 +1,7 @@
 from sqlalchemy import CheckConstraint, Float, Numeric, UniqueConstraint
 
 from app.db.base import Base
-from app.db.models import Portfolio, Price, Security, Transaction, User
+from app.db.models import Fundamental, Portfolio, Price, Security, Transaction, User
 
 
 def test_no_holdings_table() -> None:
@@ -17,6 +17,8 @@ def test_expected_tables_exist() -> None:
         "securities",
         "prices",
         "transactions",
+        "job_runs",
+        "fundamentals",
     }
 
 
@@ -31,17 +33,24 @@ def test_price_and_quantity_columns_are_numeric_not_float() -> None:
     assert isinstance(Transaction.__table__.c["price"].type, Numeric)
     assert not isinstance(Transaction.__table__.c["quantity"].type, Float)
 
+    for column_name in ("roe", "pe_ratio", "revenue_growth", "market_cap"):
+        column = Fundamental.__table__.c[column_name]
+        assert isinstance(column.type, Numeric)
+        assert not isinstance(column.type, Float)
 
-def test_prices_have_composite_unique_on_security_and_timestamp() -> None:
-    uniques = [
-        constraint
-        for constraint in Price.__table__.constraints
-        if isinstance(constraint, UniqueConstraint)
-    ]
-    column_sets = [
-        tuple(col.name for col in constraint.columns) for constraint in uniques
-    ]
-    assert ("security_id", "timestamp") in column_sets
+
+def test_prices_have_covering_unique_index() -> None:
+    index = next(
+        item
+        for item in Price.__table__.indexes
+        if item.name == "uq_prices_security_id_timestamp"
+    )
+    assert index.unique is True
+    assert tuple(column.name for column in index.columns) == (
+        "security_id",
+        "timestamp",
+    )
+    assert index.dialect_options["postgresql"]["include"] == ["adjusted_close"]
 
 
 def test_portfolio_and_transaction_indexes() -> None:
@@ -61,6 +70,23 @@ def test_portfolio_and_transaction_indexes() -> None:
         "portfolio_id",
         "security_id",
     )
+
+    job_indexes = {
+        index.name: tuple(col.name for col in index.columns)
+        for index in Base.metadata.tables["job_runs"].indexes
+    }
+    assert job_indexes["ix_job_runs_job_name_started_at"] == (
+        "job_name",
+        "started_at",
+    )
+    assert "uq_job_runs_running_job_name" in job_indexes
+
+    fundamental_uniques = [
+        tuple(col.name for col in constraint.columns)
+        for constraint in Fundamental.__table__.constraints
+        if isinstance(constraint, UniqueConstraint)
+    ]
+    assert ("security_id",) in fundamental_uniques
 
 
 def test_ticker_is_unique() -> None:
@@ -83,3 +109,10 @@ def test_check_constraint_names() -> None:
     }
     assert "ck_transactions_type" in txn_checks
     assert "ck_transactions_quantity_positive" in txn_checks
+
+    fund_checks = {
+        constraint.name
+        for constraint in Fundamental.__table__.constraints
+        if isinstance(constraint, CheckConstraint)
+    }
+    assert "ck_fundamentals_market_cap_positive" in fund_checks

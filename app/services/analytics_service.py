@@ -6,6 +6,7 @@ from uuid import UUID
 
 from sqlalchemy.orm import Session
 
+from app.core.cache import CacheBackend, NullCache
 from app.core.config import settings
 from app.core.exceptions import ConflictError, NotFoundError
 from app.db.models import Transaction
@@ -32,17 +33,38 @@ from app.services.analytics import (
 )
 from app.services.holdings import PositionLeg, aggregate_positions
 
+ANALYTICS_CACHE_SCHEMA = "v1"
+
 
 class AnalyticsService:
-    def __init__(self, session: Session) -> None:
+    def __init__(
+        self,
+        session: Session,
+        cache: CacheBackend | None = None,
+    ) -> None:
         self.portfolios = PortfolioRepository(session)
         self.transactions = TransactionRepository(session)
         self.prices = PriceRepository(session)
+        self.cache = cache or NullCache()
 
     def get_analytics(self, portfolio_id: UUID) -> AnalyticsOut:
         if self.portfolios.get(portfolio_id) is None:
             raise NotFoundError(f"Portfolio {portfolio_id} not found")
 
+        cache_key = self._cache_key(portfolio_id)
+        cached = self.cache.get_json(cache_key)
+        if isinstance(cached, dict):
+            return AnalyticsOut.model_validate(cached)
+
+        result = self._calculate(portfolio_id)
+        self.cache.set_json(
+            cache_key,
+            result.model_dump(mode="json"),
+            settings.analytics_cache_ttl_seconds,
+        )
+        return result
+
+    def _calculate(self, portfolio_id: UUID) -> AnalyticsOut:
         rows = self.transactions.list_for_portfolio(portfolio_id)
         if not rows:
             raise ConflictError("Portfolio has no transactions")
@@ -111,6 +133,14 @@ class AnalyticsService:
                 for point in points
             ],
             assumptions=_assumptions(rf, periods),
+        )
+
+    def _cache_key(self, portfolio_id: UUID) -> str:
+        portfolio_version = self.cache.get_version(f"portfolio:{portfolio_id}")
+        prices_version = self.cache.get_version("prices")
+        return (
+            f"portfolio:{portfolio_id}:analytics:{ANALYTICS_CACHE_SCHEMA}:"
+            f"portfolio-v{portfolio_version}:prices-v{prices_version}"
         )
 
 

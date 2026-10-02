@@ -1,4 +1,11 @@
+import os
 from collections.abc import Iterator
+
+# Must run before any import of app.core.config / app.main so TestClient
+# lifespan does not start APScheduler or call a live vendor.
+os.environ["SCHEDULER_ENABLED"] = "false"
+# Unit/API tests use an explicit in-memory fake when they test caching.
+os.environ["CACHE_ENABLED"] = "false"
 
 import pytest
 from sqlalchemy import create_engine, event, text

@@ -19,7 +19,8 @@ from sqlalchemy import func, select
 from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.orm import Session
 
-from app.db.models import Price, Security, User
+from app.core.cache import queue_version_bump
+from app.db.models import Fundamental, Price, Security, User
 
 logger = logging.getLogger(__name__)
 
@@ -69,6 +70,55 @@ SECURITIES: tuple[SecuritySpec, ...] = (
     _spec("META", "Meta Platforms, Inc.", "Communication Services", "350.00", 66),
     _spec("TSLA", "Tesla, Inc.", "Consumer Discretionary", "250.00", 77),
 )
+
+# Synthetic latest snapshots, not live filings. Units:
+# roe / revenue_growth are decimals (0.15 = 15%). pe_ratio is a multiple.
+# market_cap is USD. Chosen so the README example screen returns GOOGL+META.
+FUNDAMENTAL_AS_OF = date(2025, 12, 31)
+FUNDAMENTALS: dict[str, dict[str, str]] = {
+    "AAPL": {
+        "roe": "0.35",
+        "pe_ratio": "28",
+        "revenue_growth": "0.08",
+        "market_cap": "3500000000000",
+    },
+    "MSFT": {
+        "roe": "0.38",
+        "pe_ratio": "32",
+        "revenue_growth": "0.14",
+        "market_cap": "3100000000000",
+    },
+    "NVDA": {
+        "roe": "0.70",
+        "pe_ratio": "45",
+        "revenue_growth": "0.80",
+        "market_cap": "2200000000000",
+    },
+    "AMZN": {
+        "roe": "0.18",
+        "pe_ratio": "35",
+        "revenue_growth": "0.11",
+        "market_cap": "1800000000000",
+    },
+    "GOOGL": {
+        "roe": "0.28",
+        "pe_ratio": "22",
+        "revenue_growth": "0.12",
+        "market_cap": "2000000000000",
+    },
+    "META": {
+        "roe": "0.32",
+        "pe_ratio": "24",
+        "revenue_growth": "0.16",
+        "market_cap": "1200000000000",
+    },
+    "TSLA": {
+        "roe": "0.12",
+        "pe_ratio": "55",
+        "revenue_growth": "0.05",
+        "market_cap": "700000000000",
+    },
+}
 
 
 def iter_weekdays(start: date, end: date) -> Iterator[date]:
@@ -188,18 +238,59 @@ def seed_market_data(
         )
         prices_inserted += _insert_prices(session, security_id, bars)
 
+    fundamentals_upserted = _seed_fundamentals(session)
+    if prices_inserted > 0:
+        queue_version_bump(session, "prices")
+    if fundamentals_upserted > 0:
+        queue_version_bump(session, "fundamentals")
+
     logger.info(
         "seed_complete",
         extra={
             "securities": securities_upserted,
             "price_rows_attempted": prices_inserted,
+            "fundamentals": fundamentals_upserted,
         },
     )
     return {
         "securities": securities_upserted,
         "prices_inserted": prices_inserted,
+        "fundamentals": fundamentals_upserted,
         "demo_user_id": str(demo_user_id),
     }
+
+
+def _seed_fundamentals(session: Session) -> int:
+    written = 0
+    for ticker, metrics in FUNDAMENTALS.items():
+        security_id = session.execute(
+            select(Security.id).where(Security.ticker == ticker)
+        ).scalar_one()
+        stmt = (
+            insert(Fundamental)
+            .values(
+                security_id=security_id,
+                as_of=FUNDAMENTAL_AS_OF,
+                roe=Decimal(metrics["roe"]),
+                pe_ratio=Decimal(metrics["pe_ratio"]),
+                revenue_growth=Decimal(metrics["revenue_growth"]),
+                market_cap=Decimal(metrics["market_cap"]),
+            )
+            .on_conflict_do_update(
+                index_elements=["security_id"],
+                set_={
+                    "as_of": FUNDAMENTAL_AS_OF,
+                    "roe": Decimal(metrics["roe"]),
+                    "pe_ratio": Decimal(metrics["pe_ratio"]),
+                    "revenue_growth": Decimal(metrics["revenue_growth"]),
+                    "market_cap": Decimal(metrics["market_cap"]),
+                    "updated_at": func.now(),
+                },
+            )
+        )
+        session.execute(stmt)
+        written += 1
+    return written
 
 
 def _insert_prices(
@@ -214,7 +305,7 @@ def _insert_prices(
         window = bars[offset : offset + INSERT_CHUNK]
         chunk = [{"security_id": security_id, **bar} for bar in window]
         stmt = insert(Price).values(chunk).on_conflict_do_nothing(
-            constraint="uq_prices_security_id_timestamp"
+            index_elements=["security_id", "timestamp"]
         )
         result = session.execute(stmt)
         inserted += result.rowcount or 0

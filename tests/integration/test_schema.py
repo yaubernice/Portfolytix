@@ -27,13 +27,19 @@ def test_alembic_upgrade_creates_phase2_tables() -> None:
             "securities",
             "prices",
             "transactions",
+            "job_runs",
+            "fundamentals",
         }.issubset(tables)
 
-        price_uniques = inspector.get_unique_constraints("prices")
-        unique_column_sets = {
-            tuple(constraint["column_names"]) for constraint in price_uniques
+        price_indexes = {
+            index["name"]: index for index in inspector.get_indexes("prices")
         }
-        assert ("security_id", "timestamp") in unique_column_sets
+        price_history_index = price_indexes["uq_prices_security_id_timestamp"]
+        assert price_history_index["unique"] is True
+        assert tuple(price_history_index["column_names"]) == (
+            "security_id",
+            "timestamp",
+        )
 
         index_names = {index["name"] for index in inspector.get_indexes("transactions")}
         assert "ix_transactions_portfolio_id_timestamp" in index_names

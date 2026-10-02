@@ -1,12 +1,13 @@
 from datetime import date
 from decimal import Decimal
 
-from app.db.seed import SECURITIES, generate_daily_bars, iter_weekdays
+from app.db.seed import FUNDAMENTALS, SECURITIES, generate_daily_bars, iter_weekdays
 
 
 def test_reference_universe_matches_phase_two_spec() -> None:
     tickers = [spec.ticker for spec in SECURITIES]
     assert tickers == ["AAPL", "MSFT", "NVDA", "AMZN", "GOOGL", "META", "TSLA"]
+    assert set(FUNDAMENTALS) == set(tickers)
 
 
 def test_weekdays_skip_weekends() -> None:

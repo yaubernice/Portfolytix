@@ -10,6 +10,7 @@ from sqlalchemy.orm import Mapped, mapped_column, relationship
 from app.db.base import Base
 
 if TYPE_CHECKING:
+    from app.db.models.fundamental import Fundamental
     from app.db.models.price import Price
     from app.db.models.transaction import Transaction
 
@@ -58,4 +59,9 @@ class Security(Base):
     transactions: Mapped[list[Transaction]] = relationship(
         back_populates="security",
         passive_deletes=True,
+    )
+    fundamental: Mapped[Fundamental | None] = relationship(
+        back_populates="security",
+        cascade="all, delete-orphan",
+        uselist=False,
     )

@@ -1,7 +1,7 @@
 [project]
 name = "finsight"
 version = "0.1.0"
-description = "Personal finance analytics — Phase 4 portfolio analytics"
+description = "Personal finance analytics — Phase 9 Redis caching"
 readme = "README.md"
 requires-python = ">=3.12"
 dependencies = [
@@ -12,6 +12,9 @@ dependencies = [
     "sqlalchemy>=2.0.36,<3",
     "alembic>=1.14,<2",
     "psycopg[binary]>=3.2,<4",
+    "httpx>=0.28,<1",
+    "apscheduler>=3.10,<4",
+    "redis>=5.2,<6",
 ]
 
 [project.optional-dependencies]
@@ -39,6 +42,9 @@ src = ["app", "tests", "scripts"]
 
 [tool.ruff.lint]
 select = ["E", "F", "I", "UP"]
+
+[tool.ruff.lint.per-file-ignores]
+"tests/conftest.py" = ["E402"]
 
 [tool.ruff.lint.isort]
 known-first-party = ["app"]

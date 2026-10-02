@@ -10,8 +10,8 @@ from sqlalchemy import (
     CheckConstraint,
     DateTime,
     ForeignKey,
+    Index,
     Numeric,
-    UniqueConstraint,
     Uuid,
 )
 from sqlalchemy.orm import Mapped, mapped_column, relationship
@@ -28,13 +28,16 @@ _PRICE = Numeric(18, 6)
 class Price(Base):
     """One daily OHLCV bar for one security.
 
-    Unique ``(security_id, timestamp)`` — also the history index
+    Covering unique index ``(security_id, timestamp) INCLUDE
+    (adjusted_close)`` — also the history index
         Query: ``SELECT * FROM prices WHERE security_id = ? AND timestamp
         BETWEEN ? AND ? ORDER BY timestamp``.
         Column order: equality on ``security_id`` first, range on
         ``timestamp`` second. Postgres can walk the btree from the
         security's first bar to its last. Reversing the columns would
         force a scan of every security at a given time (useless here).
+        ``adjusted_close`` is included in PostgreSQL leaf pages so the
+        analytics history query can use an index-only scan after vacuum.
         The same index enforces uniqueness so a repeated ingest cannot
         insert a second bar for the same day.
         Tradeoff: every insert updates this unique index. That is the
@@ -50,10 +53,12 @@ class Price(Base):
 
     __tablename__ = "prices"
     __table_args__ = (
-        UniqueConstraint(
+        Index(
+            "uq_prices_security_id_timestamp",
             "security_id",
             "timestamp",
-            name="uq_prices_security_id_timestamp",
+            unique=True,
+            postgresql_include=["adjusted_close"],
         ),
         CheckConstraint("high >= low", name="high_gte_low"),
         CheckConstraint(
