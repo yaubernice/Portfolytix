@@ -1,4 +1,5 @@
 from datetime import date
+from decimal import Decimal
 from uuid import UUID
 
 from pydantic import BaseModel, Field
@@ -23,8 +24,10 @@ class SeriesPoint(BaseModel):
     date: date
     value: DecimalStr
     cash_flow: DecimalStr
+    daily_pl: OptionalDecimalStr = None
     daily_return: OptionalDecimalStr = None
     cumulative_return: OptionalDecimalStr = None
+    drawdown: DecimalStr = Decimal("0")
 
 
 class AllocationOut(BaseModel):

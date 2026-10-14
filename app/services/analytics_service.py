@@ -33,22 +33,24 @@ from app.services.analytics import (
 )
 from app.services.holdings import PositionLeg, aggregate_positions
 
-ANALYTICS_CACHE_SCHEMA = "v1"
+ANALYTICS_CACHE_SCHEMA = "v2"
 
 
 class AnalyticsService:
     def __init__(
         self,
         session: Session,
+        user_id: UUID,
         cache: CacheBackend | None = None,
     ) -> None:
+        self.user_id = user_id
         self.portfolios = PortfolioRepository(session)
         self.transactions = TransactionRepository(session)
         self.prices = PriceRepository(session)
         self.cache = cache or NullCache()
 
     def get_analytics(self, portfolio_id: UUID) -> AnalyticsOut:
-        if self.portfolios.get(portfolio_id) is None:
+        if self.portfolios.get_owned(portfolio_id, self.user_id) is None:
             raise NotFoundError(f"Portfolio {portfolio_id} not found")
 
         cache_key = self._cache_key(portfolio_id)
@@ -127,8 +129,10 @@ class AnalyticsService:
                     date=point.on,
                     value=point.value,
                     cash_flow=point.cash_flow,
+                    daily_pl=point.daily_pl,
                     daily_return=point.daily_return,
                     cumulative_return=point.cumulative_return,
+                    drawdown=point.drawdown,
                 )
                 for point in points
             ],

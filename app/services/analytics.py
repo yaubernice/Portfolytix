@@ -82,8 +82,10 @@ class ValuePoint: #value of the portfolio on a given day
     on: date
     value: Decimal
     cash_flow: Decimal
+    daily_pl: Decimal | None
     daily_return: Decimal | None
     cumulative_return: Decimal | None
+    drawdown: Decimal
 
 
 @dataclass(frozen=True, slots=True)
@@ -212,6 +214,32 @@ def max_drawdown(daily_returns: list[Decimal]) -> Decimal:
     return worst
 
 
+def daily_profit_loss(
+    previous_value: Decimal | None,
+    value: Decimal,
+    cash_flow: Decimal,
+) -> Decimal | None:
+    """Absolute daily portfolio P/L with external cash flows removed."""
+    if previous_value is None:
+        return None
+    return value - previous_value - cash_flow
+
+
+def point_in_time_drawdowns(
+    daily_returns: list[Decimal | None],
+) -> list[Decimal]:
+    """Drawdown at each observation on the same TWR wealth index as max_drawdown."""
+    wealth = ONE
+    peak = ONE
+    result: list[Decimal] = []
+    for item in daily_returns:
+        if item is not None:
+            wealth *= ONE + item
+            peak = max(peak, wealth)
+        result.append(wealth / peak - ONE)
+    return result
+
+
 def allocation(
     quantities: dict[UUID, Decimal],
     tickers: dict[UUID, str],
@@ -279,6 +307,7 @@ def build_value_series(
     holdings: dict[UUID, Decimal] = {}
     previous_value: Decimal | None = None
     wealth = ONE
+    peak = ONE
     points: list[ValuePoint] = []
 
     for on in calendar:
@@ -304,10 +333,13 @@ def build_value_series(
             value = marked
 
         daily: Decimal | None = None
+        daily_pl = daily_profit_loss(previous_value, value, cash_flow)
         cumulative: Decimal | None = None
         if previous_value is not None and previous_value != ZERO:
-            daily = (value - previous_value - cash_flow) / previous_value
+            assert daily_pl is not None
+            daily = daily_pl / previous_value
             wealth *= ONE + daily
+            peak = max(peak, wealth)
             cumulative = wealth - ONE
         elif value > ZERO:
             cumulative = ZERO
@@ -320,8 +352,10 @@ def build_value_series(
                 on=on,
                 value=value,
                 cash_flow=cash_flow,
+                daily_pl=daily_pl,
                 daily_return=daily,
                 cumulative_return=cumulative,
+                drawdown=wealth / peak - ONE,
             )
         )
         previous_value = value

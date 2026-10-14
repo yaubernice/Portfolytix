@@ -5,6 +5,7 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
 class Settings(BaseSettings):
+    # Runtime settings come from environment variables and optional .env.
     """Runtime settings loaded from environment variables (and optional `.env`)."""
 
     model_config = SettingsConfigDict(
@@ -31,18 +32,63 @@ class Settings(BaseSettings):
     # 22:00 UTC is after the US cash close in both EST and EDT.
     market_data_cron: str = "0 22 * * *"
     market_data_lookback_days: int = 7
+    # One run cannot walk the whole universe or a multi-decade window.
+    market_data_max_securities: int = 25
+    market_data_max_window_days: int = 1825
+    market_data_max_attempts: int = 3
+    market_data_retry_backoff_seconds: float = 0.0
+    market_data_pause_seconds: float = 0.0
+    # Alpha Vantage "full" is the entire daily history. Compact is enough
+    # unless an older window is explicitly allowed.
+    market_data_allow_full_history: bool = False
     job_stale_after_seconds: int = 3600
     # Redis is an acceleration layer only. PostgreSQL remains authoritative.
-    cache_enabled: bool = True
-    redis_url: str = "redis://localhost:16379/0"
-    cache_key_prefix: str = "finsight"
-    analytics_cache_ttl_seconds: int = 300
-    screening_cache_ttl_seconds: int = 300
-    redis_socket_timeout_seconds: float = 0.2
+    cache_enabled: bool = True #enable caching to speed up the application
+    redis_url: str = "redis://localhost:16379/0" #Redis URL for the cache
+    cache_key_prefix: str = "finsight" #prefix for the cache keys
+    analytics_cache_ttl_seconds: int = 300 #time to live for the analytics cache
+    screening_cache_ttl_seconds: int = 300 #time to live for the screening cache
+    redis_socket_timeout_seconds: float = 0.2 #timeout for the Redis connection
+    # Phase 10 authentication. Override the development secret outside local.
+    jwt_secret_key: str = "dev-only-change-this-secret-at-least-32-bytes"
+    jwt_algorithm: str = "HS256"
+    jwt_issuer: str = "finsight"
+    jwt_access_token_minutes: int = 30
+    # Phase 12. local uses rules and a template. openai defaults to Responses.
+    # The model never receives a database connection.
+    ai_provider: str = "local"
+    ai_openai_api: str = "responses"
+    ai_api_key: str = ""
+    ai_base_url: str = "https://api.openai.com/v1"
+    ai_model: str = "gpt-4o-mini"
+    ai_timeout_seconds: float = 20.0
+    # If the remote model is unavailable, retain an evidence-only local answer.
+    ai_fallback_to_local: bool = True
+    # Live quotes are current state in Redis. Daily bars stay in PostgreSQL.
+    # simulator needs no key. finnhub streams trades. alpha_vantage polls
+    # GLOBAL_QUOTE (delayed unless the key has a realtime entitlement).
+    quote_provider: str = "simulator"
+    quote_symbols: str = "AAPL,MSFT,NVDA,AMZN,GOOGL,META,TSLA"
+    quote_poll_seconds: float = 2.0
+    quote_ttl_seconds: int = 30
+    # A provider tick older than this can no longer be presented as real-time.
+    quote_stale_after_seconds: float = 15.0
+    quote_worker_heartbeat_ttl_seconds: int = 30
+    # Watchlist names above this count are not subscribed in one worker pass.
+    quote_max_symbols: int = 50
+    quote_reconnect_seconds: float = 2.0
+    quote_symbol_refresh_seconds: float = 30.0
+    # GLOBAL_QUOTE stays delayed unless the key's entitlement is real-time.
+    alpha_vantage_realtime: bool = False
+    # Empty follows the quote provider. none stores no headlines.
+    news_provider: str = ""
+    finnhub_api_key: str = ""
+    news_ttl_seconds: int = 900
+    cors_origins: str = "http://localhost:3000,http://127.0.0.1:3000"
 
 
 @lru_cache
-def get_settings() -> Settings:
+def get_settings() -> Settings: #dependency function to get the settings
     return Settings()
 
 

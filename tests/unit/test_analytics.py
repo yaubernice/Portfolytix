@@ -8,8 +8,10 @@ from app.services.analytics import (
     allocation,
     annualized_volatility,
     build_value_series,
+    daily_profit_loss,
     daily_returns_of,
     max_drawdown,
+    point_in_time_drawdowns,
     sample_stdev,
     sharpe_ratio,
     total_return,
@@ -82,6 +84,27 @@ def test_max_drawdown_from_peak() -> None:
 
 def test_max_drawdown_never_positive() -> None:
     assert max_drawdown([Decimal("0.05"), Decimal("0.01")]) == Decimal("0")
+
+
+def test_daily_profit_loss_removes_external_cash_flow() -> None:
+    assert daily_profit_loss(
+        Decimal("100"),
+        Decimal("165"),
+        Decimal("50"),
+    ) == Decimal("15")
+    assert daily_profit_loss(None, Decimal("100"), Decimal("100")) is None
+
+
+def test_point_in_time_drawdown_path_uses_twr_wealth() -> None:
+    path = point_in_time_drawdowns(
+        [None, Decimal("0.2"), Decimal("-0.25"), Decimal("0.1")]
+    )
+    assert path == [
+        Decimal("0"),
+        Decimal("0"),
+        Decimal("-0.25"),
+        Decimal("-0.175"),
+    ]
 
 
 def test_sample_stdev_needs_two_points() -> None:

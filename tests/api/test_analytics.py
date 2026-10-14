@@ -62,6 +62,8 @@ def test_analytics_twr_and_allocation(
     assert body["assumptions"]["method"] == "time_weighted"
     assert "Not investment advice" in body["assumptions"]["disclaimer"]
     assert body["series"][-1]["daily_return"] == "0.1"
+    assert body["series"][-1]["daily_pl"] == "10"
+    assert body["series"][-1]["drawdown"] == "0"
 
 
 def test_analytics_requires_transactions_and_prices(
