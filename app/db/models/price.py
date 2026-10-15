@@ -12,6 +12,7 @@ from sqlalchemy import (
     ForeignKey,
     Index,
     Numeric,
+    String,
     Uuid,
 )
 from sqlalchemy.orm import Mapped, mapped_column, relationship
@@ -86,5 +87,12 @@ class Price(Base):
     close: Mapped[Decimal] = mapped_column(_PRICE, nullable=False)
     adjusted_close: Mapped[Decimal] = mapped_column(_PRICE, nullable=False)
     volume: Mapped[int] = mapped_column(BigInteger, nullable=False)
+    # Vendor that wrote this bar. Null on rows loaded before that was stored.
+    source: Mapped[str | None] = mapped_column(String(32), nullable=True)
+    # When this bar was last upserted. Distinct from the trading day.
+    ingested_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True),
+        nullable=True,
+    )
 
     security: Mapped[Security] = relationship(back_populates="prices")

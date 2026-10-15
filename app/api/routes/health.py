@@ -110,6 +110,8 @@ def get_status(
         status="ok",
         provider={
             "name": settings.quote_provider,
+            "historical_provider": settings.market_data_provider,
+            "news_provider": settings.news_provider or "quote_provider",
             "quote_count": len(quote_rows),
             "freshness": states,
         },

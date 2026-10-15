@@ -1,8 +1,11 @@
+import asyncio
 from datetime import UTC, datetime
 from decimal import Decimal
 from uuid import uuid4
 
 from app.ai.evidence import attach_live_moves, build_evidence
+from app.core.config import settings
+from app.core.metrics import MemoryMetrics
 from app.market_data.alpha_vantage import (
     parse_alpha_vantage_news,
     parse_alpha_vantage_overview,
@@ -17,7 +20,7 @@ from app.market_data.finnhub import (
 from app.quotes.models import quote_from_parts
 from app.quotes.store import MemoryQuoteStore
 from app.services.positions import CostFill, average_cost_positions
-from app.workers.quote_worker import publish_heartbeat
+from app.workers.quote_worker import publish_heartbeat, stream_finnhub
 from tests.unit.test_assistant import _analytics
 
 
@@ -92,18 +95,47 @@ def test_stale_realtime_quote_is_never_exposed_as_realtime() -> None:
     assert quote.received_at is not None
 
 
-def test_delayed_and_simulator_quotes_become_stale_when_old() -> None:
-    for timeliness in ("delayed", "simulated"):
-        quote = quote_from_parts(
-            ticker="AAPL",
-            price=Decimal("100"),
-            timestamp=datetime(2026, 1, 1, tzinfo=UTC),
-            source=timeliness,
-            timeliness=timeliness,
-        ).freshened(now=datetime(2026, 1, 2, tzinfo=UTC), max_age_seconds=1)
-        assert quote.timeliness == "stale"
-        assert quote.provider_timeliness == timeliness
-        assert quote.is_stale is True
+def test_simulator_quote_becomes_stale_when_its_print_is_old() -> None:
+    quote = quote_from_parts(
+        ticker="AAPL",
+        price=Decimal("100"),
+        timestamp=datetime(2026, 1, 1, tzinfo=UTC),
+        source="simulator",
+        timeliness="simulated",
+    ).freshened(now=datetime(2026, 1, 2, tzinfo=UTC), max_age_seconds=1)
+    assert quote.timeliness == "stale"
+    assert quote.provider_timeliness == "simulated"
+    assert quote.is_stale is True
+
+
+def test_delayed_quote_keeps_its_label_when_the_print_is_old() -> None:
+    now = datetime(2026, 10, 15, 15, tzinfo=UTC)
+    quote = quote_from_parts(
+        ticker="MSFT",
+        price=Decimal("100"),
+        timestamp=datetime(2026, 10, 14, tzinfo=UTC),
+        source="alpha_vantage",
+        timeliness="delayed",
+        received_at=now,
+    ).freshened(now=now)
+    assert quote.timeliness == "delayed"
+    assert quote.provider_timeliness == "delayed"
+    assert quote.is_stale is False
+    assert quote.age_seconds > 0
+
+
+def test_delayed_quote_is_stale_when_the_refresh_is_old() -> None:
+    now = datetime(2026, 10, 15, 15, tzinfo=UTC)
+    quote = quote_from_parts(
+        ticker="MSFT",
+        price=Decimal("100"),
+        timestamp=now,
+        source="alpha_vantage",
+        timeliness="delayed",
+        received_at=datetime(2026, 10, 15, 14, tzinfo=UTC),
+    ).freshened(now=now, max_age_seconds=60)
+    assert quote.timeliness == "stale"
+    assert quote.provider_timeliness == "delayed"
 
 
 def test_quote_worker_heartbeat_has_operational_state() -> None:
@@ -141,6 +173,9 @@ def test_alpha_vantage_global_quote() -> None:
     assert quote.change == Decimal("2.10")
     assert quote.source == "alpha_vantage"
     assert quote.timeliness == "delayed"
+    fresh = quote.freshened()
+    assert fresh.timeliness == "delayed"
+    assert fresh.is_stale is False
 
 
 def test_overview_maps_optional_fields() -> None:
@@ -239,3 +274,44 @@ def test_live_moves_rank_day_change_without_touching_facts() -> None:
     assert metrics["largest_gainer"].startswith("AAPL ")
     assert metrics["day_change:AAPL"]
     assert updated["facts"] == evidence["facts"]
+
+
+def test_finnhub_stream_backs_off_after_a_dropped_socket(monkeypatch) -> None:
+    metrics = MemoryMetrics()
+    attempts = {"count": 0}
+    sleeps: list[float] = []
+
+    async def fail_then_cancel(_api_key, _symbols, _store) -> None:
+        attempts["count"] += 1
+        if attempts["count"] < 3:
+            raise ConnectionError("dropped")
+        raise asyncio.CancelledError
+
+    async def record_sleep(delay: float) -> None:
+        sleeps.append(delay)
+
+    monkeypatch.setattr(settings, "quote_reconnect_seconds", 2.0)
+    monkeypatch.setattr(
+        "app.workers.quote_worker.get_metrics",
+        lambda: metrics,
+    )
+    monkeypatch.setattr(
+        "app.workers.quote_worker.load_quote_symbols",
+        lambda: ["AAPL"],
+    )
+    monkeypatch.setattr(
+        "app.workers.quote_worker._stream_session",
+        fail_then_cancel,
+    )
+    monkeypatch.setattr("app.workers.quote_worker.asyncio.sleep", record_sleep)
+
+    try:
+        asyncio.run(stream_finnhub("token", None))
+    except asyncio.CancelledError:
+        pass
+    else:
+        raise AssertionError("stream should stop when the task is cancelled")
+
+    assert attempts["count"] == 3
+    assert sleeps == [2.0, 4.0]
+    assert metrics.snapshot()["quotes.reconnects"] == 2.0

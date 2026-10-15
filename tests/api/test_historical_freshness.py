@@ -1,6 +1,7 @@
 from datetime import UTC, date, datetime, timedelta
 from decimal import Decimal
 
+import pytest
 from fastapi.testclient import TestClient
 from sqlalchemy.orm import Session
 
@@ -31,6 +32,28 @@ class _OneBar(MarketDataProvider):
         ]
 
 
+def test_missing_history_is_filled_only_when_asked(
+    client: TestClient,
+    apple: Security,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(
+        "app.services.reference_service.YahooHistoryProvider",
+        lambda: _OneBar(),
+    )
+    skipped = client.get("/securities/AAPL")
+    assert skipped.status_code == 200, skipped.text
+    assert skipped.json()["latest_close"] is None
+
+    filled = client.get("/securities/AAPL", params={"ensure_history": True})
+    assert filled.status_code == 200, filled.text
+    body = filled.json()
+    assert body["latest_close"] == "100"
+    assert body["history_source"] == "fixture"
+    assert body["live_timeliness"] == "unavailable"
+    assert body["prices"]
+
+
 def test_freshness_describes_the_stored_bar(
     client: TestClient,
     sqlite_session: Session,
@@ -50,11 +73,13 @@ def test_freshness_describes_the_stored_bar(
     assert body["latest_bar"] == "2024-01-02"
     assert body["source"] == "fixture"
     assert body["timeliness"] == "historical"
+    assert body["is_stale"] is True
     assert body["last_successful_update"] is not None
 
     profile = client.get("/securities/AAPL")
     assert profile.status_code == 200, profile.text
     assert profile.json()["history_timeliness"] == "historical"
+    assert profile.json()["history_is_stale"] is True
     assert profile.json()["history_source"] == "fixture"
 
 

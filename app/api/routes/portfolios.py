@@ -1,6 +1,6 @@
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, Query, Response, status
+from fastapi import APIRouter, Depends, Response, status
 
 from app.api.dependencies import get_portfolio_service
 from app.schemas.portfolio import (
@@ -24,10 +24,9 @@ def create_portfolio(
 
 @router.get("", response_model=list[PortfolioSummary])
 def list_portfolios(
-    user_id: UUID = Query(..., description="Owner whose portfolios to list"),
     service: PortfolioService = Depends(get_portfolio_service),
 ) -> list[PortfolioSummary]:
-    return service.list_portfolios(user_id)
+    return service.list_portfolios()
 
 
 @router.get("/{portfolio_id}", response_model=PortfolioDetail)

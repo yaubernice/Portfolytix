@@ -19,6 +19,8 @@ class JobRunOut(BaseModel):
     upserted: int
     skipped_invalid: int
     failed_tickers: list[str]
+    symbols_requested: int = 0
+    symbols_omitted: int = 0
     error: str | None
 
     model_config = {"from_attributes": True}

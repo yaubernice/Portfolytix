@@ -1,7 +1,7 @@
 [project]
 name = "finsight"
 version = "0.1.0"
-description = "Personal finance analytics — Phase 9 Redis caching"
+description = "Personal finance analytics — live quotes and structured assistant"
 readme = "README.md"
 requires-python = ">=3.12"
 dependencies = [
@@ -15,6 +15,10 @@ dependencies = [
     "httpx>=0.28,<1",
     "apscheduler>=3.10,<4",
     "redis>=5.2,<6",
+    "pwdlib[argon2]>=0.2,<1",
+    "pyjwt>=2.9,<3",
+    "websockets>=13,<16",
+    "email-validator>=2.2,<3",
 ]
 
 [project.optional-dependencies]

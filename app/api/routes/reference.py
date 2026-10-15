@@ -3,10 +3,20 @@ from uuid import UUID
 
 from fastapi import APIRouter, Depends, Query
 
-from app.api.dependencies import get_current_user, get_reference_service
+from app.api.dependencies import (
+    get_current_user,
+    get_position_service,
+    get_reference_service,
+)
 from app.db.models import User
-from app.schemas.market import HistoricalFreshness, NewsResponse, SecurityProfile
+from app.schemas.market import (
+    HistoricalFreshness,
+    NewsResponse,
+    PortfolioNewsResponse,
+    SecurityProfile,
+)
 from app.schemas.security import SecurityOut, SecurityPage
+from app.services.position_service import PositionService
 from app.services.reference_service import ReferenceService
 
 router = APIRouter(tags=["reference"])
@@ -92,6 +102,7 @@ def security_profile(
     ticker: str,
     period: Literal["1D", "1W", "1M", "3M", "1Y", "MAX"] | None = None,
     history_limit: int = Query(default=90, ge=1, le=5000),
+    ensure_history: bool = False,
     _user: User = Depends(get_current_user),
     service: ReferenceService = Depends(get_reference_service),
 ) -> SecurityProfile:
@@ -99,6 +110,27 @@ def security_profile(
         ticker,
         history_period=period,
         price_limit=history_limit,
+        ensure_history=ensure_history,
+    )
+
+
+@router.get(
+    "/portfolios/{portfolio_id}/news",
+    response_model=PortfolioNewsResponse,
+)
+def portfolio_news(
+    portfolio_id: UUID,
+    _user: User = Depends(get_current_user),
+    positions: PositionService = Depends(get_position_service),
+    service: ReferenceService = Depends(get_reference_service),
+) -> PortfolioNewsResponse:
+    """Headlines for open positions. Another user's portfolio is 404."""
+    rows = positions.list_positions(portfolio_id).positions
+    held = [row for row in rows if row.quantity > 0]
+    held.sort(key=lambda row: (-(row.weight or 0), row.ticker))
+    return service.news_for_holdings(
+        portfolio_id,
+        [row.ticker for row in held],
     )
 
 

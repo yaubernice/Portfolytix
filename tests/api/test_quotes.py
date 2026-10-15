@@ -107,7 +107,7 @@ def test_positions_use_average_cost_and_last_close(
     assert row["price"] == "110"
     assert row["price_source"] == "database"
     assert row["freshness"]["source"] == "database"
-    assert row["freshness"]["timeliness"] == "delayed"
+    assert row["freshness"]["timeliness"] == "historical"
     assert row["unrealized_pl"] == "40"
     assert row["day_pl"] == "40"
     assert row["weight"] == "1"

@@ -21,5 +21,6 @@ def build_provider(
     if chosen == "stooq":
         return StooqProvider(client=client)
     raise ProviderError(
-        f"Unknown MARKET_DATA_PROVIDER={chosen!r}; use alpha_vantage or stooq"
+        f"Unknown MARKET_DATA_PROVIDER={chosen!r}; use alpha_vantage or stooq",
+        retryable=False,
     )

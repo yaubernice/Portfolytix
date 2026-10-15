@@ -16,6 +16,7 @@ def _security(
     ticker: str,
     *,
     sector: str = "Technology",
+    industry: str | None = None,
     exchange: str = "NASDAQ",
 ) -> Security:
     row = Security(
@@ -23,6 +24,7 @@ def _security(
         name=f"{ticker} Inc.",
         exchange=exchange,
         sector=sector,
+        industry=industry,
         currency="USD",
     )
     session.add(row)
@@ -67,6 +69,24 @@ def _seed_seven(session: Session) -> None:
         _fundamentals(
             session, security, roe=roe, pe=pe, growth=growth, mcap=mcap
         )
+
+
+def test_dividend_filter_skips_a_null_yield(sqlite_session: Session) -> None:
+    apple = _security(sqlite_session, "AAPL")
+    meta = _security(sqlite_session, "META")
+    _fundamentals(
+        sqlite_session, apple, roe="0.35", pe="28", growth="0.08", mcap="100"
+    )
+    paying = _fundamentals(
+        sqlite_session, meta, roe="0.32", pe="24", growth="0.16", mcap="100"
+    )
+    paying.dividend_yield = Decimal("0.02")
+    sqlite_session.flush()
+    result = ScreeningService(sqlite_session).screen(
+        ScreenRequest(dividend_yield_min=Decimal("0.01"))
+    )
+    assert [hit.ticker for hit in result.items] == ["META"]
+    assert result.applied.dividend_yield_min == Decimal("0.01")
 
 
 def test_example_screen_returns_googl_and_meta(sqlite_session: Session) -> None:
@@ -125,6 +145,46 @@ def test_sector_filter_is_case_insensitive(sqlite_session: Session) -> None:
         ScreenRequest(sector="technology")
     )
     assert {hit.ticker for hit in result.items} == {"AAPL", "MSFT", "NVDA"}
+
+
+def test_industry_filter_uses_stored_security_value(
+    sqlite_session: Session,
+) -> None:
+    chip = _security(sqlite_session, "NVDA", industry="Semiconductors")
+    software = _security(sqlite_session, "MSFT", industry="Software")
+    for security in (chip, software):
+        _fundamentals(
+            sqlite_session,
+            security,
+            roe="0.30",
+            pe="25",
+            growth="0.20",
+            mcap="100",
+        )
+    result = ScreeningService(sqlite_session).screen(
+        ScreenRequest(industry="semiconductors")
+    )
+    assert [hit.ticker for hit in result.items] == ["NVDA"]
+    assert result.items[0].industry == "Semiconductors"
+
+
+def test_controlled_sort_has_stable_ticker_tie_breaker(
+    sqlite_session: Session,
+) -> None:
+    for ticker in ("MSFT", "AAPL", "NVDA"):
+        security = _security(sqlite_session, ticker)
+        _fundamentals(
+            sqlite_session,
+            security,
+            roe="0.30",
+            pe="25",
+            growth="0.20",
+            mcap="100",
+        )
+    result = ScreeningService(sqlite_session).screen(
+        ScreenRequest(sort_by="market_cap", sort_direction="desc")
+    )
+    assert [hit.ticker for hit in result.items] == ["AAPL", "MSFT", "NVDA"]
 
 
 def test_request_rejects_sql_shaped_extra_fields() -> None:

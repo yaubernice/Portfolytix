@@ -19,7 +19,10 @@ def test_expected_tables_exist() -> None:
         "transactions",
         "job_runs",
         "fundamentals",
-    }
+            "watchlists",
+            "watchlist_items",
+            "research_flags",
+        }
 
 
 def test_price_and_quantity_columns_are_numeric_not_float() -> None:
@@ -33,7 +36,23 @@ def test_price_and_quantity_columns_are_numeric_not_float() -> None:
     assert isinstance(Transaction.__table__.c["price"].type, Numeric)
     assert not isinstance(Transaction.__table__.c["quantity"].type, Float)
 
-    for column_name in ("roe", "pe_ratio", "revenue_growth", "market_cap"):
+    for column_name in (
+        "roe",
+        "pe_ratio",
+        "revenue_growth",
+        "market_cap",
+        "eps",
+        "revenue",
+        "profit_margin",
+        "dividend_yield",
+        "beta",
+        "ebitda",
+        "shares_outstanding",
+        "price_to_book",
+        "price_to_sales",
+        "roa",
+        "earnings_growth",
+    ):
         column = Fundamental.__table__.c[column_name]
         assert isinstance(column.type, Numeric)
         assert not isinstance(column.type, Float)
@@ -89,8 +108,16 @@ def test_portfolio_and_transaction_indexes() -> None:
     assert ("security_id",) in fundamental_uniques
 
 
-def test_ticker_is_unique() -> None:
-    assert Security.__table__.c["ticker"].unique is True
+def test_provider_symbol_is_the_security_identity() -> None:
+    assert Security.__table__.c["ticker"].unique is not True
+    uniques = {
+        tuple(column.name for column in constraint.columns)
+        for constraint in Security.__table__.constraints
+        if isinstance(constraint, UniqueConstraint)
+    }
+    assert ("provider", "provider_symbol") in uniques
+    index_names = {index.name for index in Security.__table__.indexes}
+    assert "ix_securities_ticker" in index_names
 
 
 def test_check_constraint_names() -> None:

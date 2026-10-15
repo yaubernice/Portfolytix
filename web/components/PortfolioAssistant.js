@@ -79,7 +79,7 @@ export default function PortfolioAssistant({ portfolioId }) {
         <div className="evidence-grid">
           {[...(evidence.facts || []), ...(evidence.metrics || [])].map((item) => (
             <article className="evidence-item" key={`${item.kind}-${item.name}`}>
-              <p className="eyebrow">{item.kind}</p><strong>{item.name}</strong><p>{item.value}</p>
+              <p className="eyebrow">{item.kind}</p><strong>{item.name}</strong><p>{item.value === null || item.value === undefined || item.value === "" ? "—" : String(item.value)}</p>
               <small className="muted">Source: {item.source}</small>
             </article>
           ))}

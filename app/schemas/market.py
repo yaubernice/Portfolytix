@@ -20,6 +20,7 @@ class NewsItem(BaseModel):
     tickers: list[str] = []
     sentiment: str | None = None
     provider: str = ""
+    image_url: str = ""
 
 
 class NewsResponse(BaseModel):
@@ -28,6 +29,14 @@ class NewsResponse(BaseModel):
     source: str
     provider: str = "none"
     items: list[NewsItem]
+
+
+class PortfolioNewsResponse(BaseModel):
+    portfolio_id: UUID
+    provider: str = "none"
+    note: str
+    items: list[NewsItem]
+    unavailable: list[str] = []
 
 
 class PriceBarOut(BaseModel):
@@ -45,6 +54,7 @@ class HistoricalFreshness(BaseModel):
     source: str | None
     last_successful_update: datetime | None
     timeliness: str
+    is_stale: bool = False
 
 
 class SecurityProfile(BaseModel):
@@ -84,6 +94,7 @@ class SecurityProfile(BaseModel):
     history_source: str | None = None
     history_updated_at: datetime | None = None
     history_timeliness: str = "unavailable"
+    history_is_stale: bool = False
     live_quote: LiveQuote | None = None
     live_timeliness: str = "unavailable"
     prices: list[PriceBarOut]

@@ -53,7 +53,7 @@ def _portfolio_with_history(session: Session) -> Portfolio:
 def test_analytics_second_read_is_a_cache_hit(sqlite_session: Session) -> None:
     portfolio = _portfolio_with_history(sqlite_session)
     cache = FakeCache()
-    service = AnalyticsService(sqlite_session, cache)
+    service = AnalyticsService(sqlite_session, portfolio.user_id, cache)
 
     first = service.get_analytics(portfolio.id)
 
@@ -74,7 +74,7 @@ def test_analytics_key_tracks_portfolio_and_price_versions(
 ) -> None:
     portfolio = _portfolio_with_history(sqlite_session)
     cache = FakeCache()
-    service = AnalyticsService(sqlite_session, cache)
+    service = AnalyticsService(sqlite_session, portfolio.user_id, cache)
 
     original = service._cache_key(portfolio.id)
     cache.bump_version(f"portfolio:{portfolio.id}")

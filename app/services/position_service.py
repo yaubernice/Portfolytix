@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from datetime import datetime
 from decimal import Decimal
 from uuid import UUID
 
@@ -102,14 +103,15 @@ class PositionService:
         price = quote.price if quote is not None else None
         source = quote.source if quote is not None else "database"
         timeliness = quote.timeliness if quote is not None else "unavailable"
+        bar_at = None
         if price is None:
-            closes = self._recent_closes(row.security_id)
+            closes = self._recent_bars(row.security_id)
             if closes:
-                price = closes[-1]
+                price, bar_at = closes[-1]
                 source = "database"
-                timeliness = "delayed"
+                timeliness = "historical"
                 if previous is None and len(closes) > 1:
-                    previous = closes[-2]
+                    previous = closes[-2][0]
         market_value = price * row.quantity if price is not None else None
         cost_basis = (
             row.avg_cost * row.quantity if row.avg_cost is not None else None
@@ -147,22 +149,24 @@ class PositionService:
             freshness=PriceFreshness(
                 source=source,
                 timeliness=timeliness,
-                as_of=quote.provider_timestamp if quote is not None else None,
+                as_of=(
+                    quote.provider_timestamp if quote is not None else bar_at
+                ),
                 received_at=quote.received_at if quote is not None else None,
                 age_seconds=quote.age_seconds if quote is not None else None,
             ),
         )
 
-    def _recent_closes(self, security_id: UUID) -> list[Decimal]:
+    def _recent_bars(self, security_id: UUID) -> list[tuple[Decimal, datetime]]:
         statement = (
-            select(Price.adjusted_close)
+            select(Price.adjusted_close, Price.timestamp)
             .where(Price.security_id == security_id)
             .order_by(Price.timestamp.desc())
             .limit(2)
         )
-        rows = list(self.session.scalars(statement))
+        rows = list(self.session.execute(statement))
         rows.reverse()
-        return rows
+        return [(row[0], row[1]) for row in rows]
 
 
 def _contribution(row: PositionOut) -> PositionContribution:

@@ -1,6 +1,6 @@
 from collections.abc import Generator
 
-from fastapi import Depends
+from fastapi import Depends, Request
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from sqlalchemy.orm import Session
 
@@ -17,9 +17,11 @@ from app.services.analytics_service import AnalyticsService
 from app.services.assistant_service import AssistantService
 from app.services.auth_service import AuthService
 from app.services.job_service import JobService
+from app.services.learning_service import LearningService
 from app.services.portfolio_service import PortfolioService
 from app.services.position_service import PositionService
 from app.services.reference_service import ReferenceService
+from app.services.research_service import ResearchService
 from app.services.screening_service import ScreeningService
 from app.services.watchlist_service import WatchlistService
 
@@ -27,10 +29,13 @@ bearer_scheme = HTTPBearer(auto_error=False)
 
 
 def get_db(
+    request: Request,
     cache: CacheBackend = Depends(get_cache),
 ) -> Generator[Session, None, None]: #commit and rollback transactions
     """Yield a request-scoped session. Commit on success, rollback on error."""
     db = SessionLocal()
+    request.state.db = db
+    request.state.cache = cache
     try:
         yield db
         commit_and_invalidate(db, cache)
@@ -106,6 +111,24 @@ def get_position_service(
     quotes: QuoteStore = Depends(get_quote_store),
 ) -> PositionService:
     return PositionService(db, current_user.id, quotes)
+
+
+def get_learning_service(
+    db: Session = Depends(get_db),
+    analytics: AnalyticsService = Depends(get_analytics_service),
+    positions: PositionService = Depends(get_position_service),
+    model: AssistantModel = Depends(get_assistant_model),
+) -> LearningService:
+    return LearningService(db, analytics, positions, model)
+
+
+def get_research_service(
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+    quotes: QuoteStore = Depends(get_quote_store),
+) -> ResearchService:
+    positions = PositionService(db, current_user.id, quotes)
+    return ResearchService(db, current_user.id, positions)
 
 
 def get_reference_service(

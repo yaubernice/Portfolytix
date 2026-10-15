@@ -107,6 +107,8 @@ def test_update_market_data_records_success(sqlite_session: Session) -> None:
     assert run.fetched == 1
     assert run.accepted == 1
     assert run.failed_tickers == []
+    assert run.symbols_requested == 1
+    assert run.symbols_omitted == 0
     assert sqlite_session.scalar(select(Price.close)) == Decimal("100")
 
 

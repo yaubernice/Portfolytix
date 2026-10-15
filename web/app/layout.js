@@ -1,3 +1,4 @@
+import ExplainLayer from "../components/ExplainLayer";
 import "./globals.css";
 
 export const metadata = {
@@ -12,6 +13,7 @@ export default function RootLayout({ children }) {
   return (
     <html lang="en" suppressHydrationWarning>
       <body>
+        <ExplainLayer />
         <div className="shell">{children}</div>
       </body>
     </html>

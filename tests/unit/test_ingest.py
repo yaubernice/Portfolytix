@@ -135,3 +135,115 @@ def test_provider_error_does_not_abort_other_tickers(
     assert report.failed_tickers == ["AAPL"]
     assert report.results[1].accepted == 1
     assert sqlite_session.scalar(select(Price.close)) == Decimal("375")
+
+
+def test_ingest_records_source_and_caps_an_exchange(
+    sqlite_session: Session,
+) -> None:
+    for ticker in ("AAPL", "MSFT"):
+        sqlite_session.add(
+            Security(
+                ticker=ticker,
+                name=ticker,
+                exchange="NASDAQ",
+                sector="Technology",
+                currency="USD",
+            )
+        )
+    sqlite_session.flush()
+    day = date(2024, 1, 2)
+    provider = FakeProvider(
+        {
+            "AAPL": [_bar("AAPL", day, "100")],
+            "MSFT": [_bar("MSFT", day, "50")],
+        }
+    )
+    report = MarketDataService(sqlite_session, provider).ingest(
+        None,
+        day,
+        day,
+        exchange="nasdaq",
+        max_securities=1,
+    )
+    assert report.symbols_requested == 2
+    assert report.symbols_omitted == 1
+    assert [row.ticker for row in report.results] == ["AAPL"]
+    stored = sqlite_session.scalar(select(Price))
+    assert stored is not None
+    assert stored.source == "fake"
+    assert stored.ingested_at is not None
+
+
+class _FlakyProvider(MarketDataProvider):
+    name = "flaky"
+
+    def __init__(self) -> None:
+        self.calls = 0
+
+    def fetch_daily_bars(
+        self, ticker: str, start: date, end: date
+    ) -> list[RawBar]:
+        self.calls += 1
+        if self.calls < 3:
+            raise ProviderError("rate limit")
+        return [_bar(ticker, start, "10")]
+
+
+def test_provider_error_is_retried_then_accepted(sqlite_session: Session) -> None:
+    _apple(sqlite_session)
+    day = date(2024, 1, 2)
+    provider = _FlakyProvider()
+    report = MarketDataService(sqlite_session, provider).ingest(
+        ["AAPL"],
+        day,
+        day,
+        max_attempts=3,
+        retry_backoff_seconds=0,
+    )
+    assert provider.calls == 3
+    assert report.failed_tickers == []
+    assert report.results[0].accepted == 1
+
+
+class _PermanentProvider(MarketDataProvider):
+    name = "permanent"
+
+    def __init__(self) -> None:
+        self.calls = 0
+
+    def fetch_daily_bars(
+        self, ticker: str, start: date, end: date
+    ) -> list[RawBar]:
+        self.calls += 1
+        raise ProviderError("unknown symbol", retryable=False)
+
+
+def test_permanent_provider_error_is_not_retried(sqlite_session: Session) -> None:
+    _apple(sqlite_session)
+    day = date(2024, 1, 2)
+    provider = _PermanentProvider()
+    report = MarketDataService(sqlite_session, provider).ingest(
+        ["AAPL"],
+        day,
+        day,
+        max_attempts=3,
+        retry_backoff_seconds=0,
+    )
+    assert provider.calls == 1
+    assert report.failed_tickers == ["AAPL"]
+    assert report.results[0].upserted == 0
+
+
+def test_window_longer_than_the_cap_is_rejected(sqlite_session: Session) -> None:
+    provider = FakeProvider({})
+    try:
+        MarketDataService(sqlite_session, provider).ingest(
+            ["AAPL"],
+            date(2010, 1, 1),
+            date(2024, 1, 1),
+            max_window_days=30,
+        )
+    except ValueError as exc:
+        assert "max is 30" in str(exc)
+    else:
+        raise AssertionError("expected the window cap to reject the request")

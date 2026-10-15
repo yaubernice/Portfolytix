@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from uuid import UUID
 
-from sqlalchemy import func, or_, select
+from sqlalchemy import case, func, or_, select
 from sqlalchemy.orm import Session
 
 from app.core.exceptions import ConflictError
@@ -122,11 +122,21 @@ class SecurityRepository:
             )
             or 0
         )
+        order = [Security.ticker, Security.exchange, Security.id]
+        if query.q and query.q.strip():
+            symbol = query.q.strip().upper()
+            prefix = _contains(symbol).strip("%")
+            order = [
+                case(
+                    (func.upper(Security.ticker) == symbol, 0),
+                    (Security.ticker.ilike(f"{prefix}%", escape="\\"), 1),
+                    else_=2,
+                ),
+                *order,
+            ]
         rows = list(
             self.session.scalars(
-                statement.order_by(Security.ticker, Security.exchange, Security.id)
-                .limit(query.limit)
-                .offset(query.offset)
+                statement.order_by(*order).limit(query.limit).offset(query.offset)
             )
         )
         return rows, total

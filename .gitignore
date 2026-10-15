@@ -20,6 +20,10 @@ build/
 .coverage
 htmlcov/
 
+# Next.js demo
+web/node_modules/
+web/.next/
+
 # Editors / OS
 .idea/
 .vscode/

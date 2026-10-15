@@ -9,12 +9,18 @@ from typing import Any
 import httpx
 
 from app.ai.openai_compatible import (
+    _EXPLAIN_INSTRUCTION,
     _INTERPRET_INSTRUCTION,
     _SCREEN_INSTRUCTION,
+    _explain_fields,
     _load_json_object,
 )
 from app.ai.parsing import screen_from_model_json
-from app.ai.structured import interpretation_json_schema, screen_json_schema
+from app.ai.structured import (
+    explain_json_schema,
+    interpretation_json_schema,
+    screen_json_schema,
+)
 from app.core.exceptions import AppError
 from app.schemas.screening import ScreenRequest
 
@@ -52,6 +58,15 @@ class OpenAIResponsesModel:
                 schema=screen_json_schema(),
             )
         )
+
+    def explain_term(self, term: str, evidence: dict) -> dict:
+        raw = self._complete(
+            _EXPLAIN_INSTRUCTION,
+            json.dumps({"term": term, "evidence": evidence}),
+            schema_name="term_explanation",
+            schema=explain_json_schema(),
+        )
+        return _explain_fields(raw)
 
     def interpret(self, question: str, evidence: dict) -> str:
         raw = self._complete(

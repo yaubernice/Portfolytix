@@ -9,10 +9,12 @@ from app.api.routes import (
     health,
     holdings,
     jobs,
+    learning,
     portfolios,
     positions,
     quotes,
     reference,
+    research,
     screening,
     transactions,
     watchlists,
@@ -36,6 +38,8 @@ def register_routes(app: FastAPI) -> None:
     app.include_router(assistant.tools_router)
     app.include_router(jobs.router)
     app.include_router(screening.router)
+    app.include_router(research.router)
+    app.include_router(learning.router)
     app.include_router(cache.router)
 
 

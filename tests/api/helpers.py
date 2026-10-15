@@ -8,7 +8,9 @@ def create_portfolio(
 ) -> dict[str, object]:
     response = client.post(
         "/portfolios",
-        json={"user_id": str(user_id), "name": name, "description": "taxable"},
+        json={"name": name, "description": "taxable"},
     )
     assert response.status_code == 201, response.text
-    return response.json()
+    body = response.json()
+    assert body["user_id"] == str(user_id)
+    return body

@@ -1,0 +1,119 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>FinSight</title>
+    <link rel="stylesheet" href="/ui/styles.css" />
+  </head>
+  <body>
+    <header class="top">
+      <div>
+        <p class="mark">FinSight</p>
+        <h1>Portfolio demo</h1>
+      </div>
+      <p id="who" class="who">Not signed in</p>
+    </header>
+
+    <section id="auth" class="auth">
+      <form id="login-form">
+        <h2>Sign in</h2>
+        <label>Email <input name="email" type="email" required autocomplete="username" /></label>
+        <label>Password <input name="password" type="password" required minlength="8" autocomplete="current-password" /></label>
+        <div class="row">
+          <button type="submit">Log in</button>
+          <button type="button" id="register">Create account</button>
+        </div>
+        <p id="auth-error" class="error"></p>
+      </form>
+    </section>
+
+    <main id="app" class="app" hidden>
+      <nav>
+        <button type="button" data-panel="portfolio" class="active">Portfolio</button>
+        <button type="button" data-panel="holdings">Holdings</button>
+        <button type="button" data-panel="analytics">Analytics</button>
+        <button type="button" data-panel="transactions">Transactions</button>
+        <button type="button" data-panel="screen">Screening</button>
+        <button type="button" data-panel="natural">Natural-language screen</button>
+        <button type="button" data-panel="ask">Ask portfolio</button>
+        <button type="button" data-panel="jobs">Job status</button>
+        <button type="button" data-panel="cache">Cache stats</button>
+        <button type="button" id="logout" class="quiet">Log out</button>
+      </nav>
+
+      <section class="workspace">
+        <label class="picker">Portfolio
+          <select id="portfolio"></select>
+        </label>
+        <p id="status" class="status"></p>
+
+        <section data-view="portfolio">
+          <form id="portfolio-form" class="inline">
+            <input name="name" placeholder="Name" required maxlength="200" />
+            <input name="description" placeholder="Description" />
+            <button type="submit">Create</button>
+          </form>
+          <div id="portfolio-table"></div>
+        </section>
+
+        <section data-view="holdings" hidden>
+          <div id="holdings-table"></div>
+        </section>
+
+        <section data-view="analytics" hidden>
+          <div id="analytics-view"></div>
+        </section>
+
+        <section data-view="transactions" hidden>
+          <form id="trade-form" class="inline">
+            <input name="ticker" placeholder="Ticker" required />
+            <select name="transaction_type">
+              <option>BUY</option>
+              <option>SELL</option>
+            </select>
+            <input name="quantity" placeholder="Quantity" required />
+            <input name="price" placeholder="Price" required />
+            <button type="submit">Record</button>
+          </form>
+          <div id="transactions-table"></div>
+        </section>
+
+        <section data-view="screen" hidden>
+          <form id="screen-form" class="inline">
+            <input name="roe_min" value="0.15" />
+            <input name="pe_max" value="30" />
+            <input name="revenue_growth_min" value="0.10" />
+            <button type="submit">Screen</button>
+          </form>
+          <div id="screen-table"></div>
+        </section>
+
+        <section data-view="natural" hidden>
+          <form id="natural-form">
+            <textarea name="query" rows="3">Find technology companies with ROE above 15%, P/E below 30, revenue growth above 10%</textarea>
+            <button type="submit">Parse and screen</button>
+          </form>
+          <div id="natural-view"></div>
+        </section>
+
+        <section data-view="ask" hidden>
+          <form id="ask-form">
+            <textarea name="question" rows="3">Why did my portfolio volatility increase this month?</textarea>
+            <button type="submit">Ask</button>
+          </form>
+          <div id="ask-view"></div>
+        </section>
+
+        <section data-view="jobs" hidden>
+          <div id="jobs-table"></div>
+        </section>
+
+        <section data-view="cache" hidden>
+          <div id="cache-view"></div>
+        </section>
+      </section>
+    </main>
+    <script src="/ui/app.js"></script>
+  </body>
+</html>

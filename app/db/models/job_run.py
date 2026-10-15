@@ -100,4 +100,17 @@ class JobRun(Base):
         nullable=False,
         default=list,
     )
+    # How many symbols the selection matched, and how many the cap left out.
+    symbols_requested: Mapped[int] = mapped_column(
+        Integer,
+        nullable=False,
+        default=0,
+        server_default="0",
+    )
+    symbols_omitted: Mapped[int] = mapped_column(
+        Integer,
+        nullable=False,
+        default=0,
+        server_default="0",
+    )
     error: Mapped[str | None] = mapped_column(Text, nullable=True)

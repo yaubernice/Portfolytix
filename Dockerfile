@@ -14,6 +14,7 @@ COPY app ./app
 COPY alembic.ini ./
 COPY alembic ./alembic
 COPY scripts ./scripts
+COPY frontend ./frontend
 
 RUN pip install --no-cache-dir . \
     && chown -R appuser:appuser /app

@@ -61,10 +61,23 @@ class LiveQuote(BaseModel):
             else max_age_seconds
         )
         original = self.provider_timeliness or self.timeliness
-        stale = age > threshold
+        if original == "delayed":
+            # A delayed print is often the last session. Stale means this
+            # process stopped refreshing it, not that the session is closed.
+            received = self.received_at or current
+            if received.tzinfo is None:
+                received = received.replace(tzinfo=UTC)
+            receipt_age = max(0.0, (current - received).total_seconds())
+            receipt_limit = (
+                settings.quote_delayed_stale_after_seconds
+                if max_age_seconds is None
+                else max_age_seconds
+            )
+            stale = receipt_age > receipt_limit
+        else:
+            stale = age > threshold
         # Preserve the provider's original label separately, but never present
-        # an old quote as current regardless of whether it began delayed,
-        # simulated, or realtime.
+        # an old realtime or simulated quote as current.
         timeliness = "stale" if stale else original
         return self.model_copy(
             update={

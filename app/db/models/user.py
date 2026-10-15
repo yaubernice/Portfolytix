@@ -10,7 +10,9 @@ from sqlalchemy.orm import Mapped, mapped_column, relationship
 from app.db.base import Base
 
 if TYPE_CHECKING:
+    from app.db.models.flag import ResearchFlag
     from app.db.models.portfolio import Portfolio
+    from app.db.models.watchlist import Watchlist
 
 
 class User(Base):
@@ -40,6 +42,14 @@ class User(Base):
     )
 
     portfolios: Mapped[list[Portfolio]] = relationship(
+        back_populates="user",
+        cascade="all, delete-orphan",
+    )
+    watchlists: Mapped[list[Watchlist]] = relationship(
+        back_populates="user",
+        cascade="all, delete-orphan",
+    )
+    research_flags: Mapped[list[ResearchFlag]] = relationship(
         back_populates="user",
         cascade="all, delete-orphan",
     )

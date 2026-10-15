@@ -1,4 +1,5 @@
 from datetime import UTC, datetime
+from uuid import uuid4
 
 from fastapi.testclient import TestClient
 from sqlalchemy.orm import Session
@@ -125,3 +126,36 @@ def test_sold_out_position_omitted_from_holdings(
     )
     holdings = client.get(f"/portfolios/{portfolio['id']}/holdings")
     assert holdings.json() == []
+
+
+def test_invalid_transaction_body_is_rejected(
+    client: TestClient, user: User, apple: Security
+) -> None:
+    portfolio = create_portfolio(client, user.id)
+    path = f"/portfolios/{portfolio['id']}/transactions"
+    zero_quantity = client.post(
+        path,
+        json={
+            "ticker": apple.ticker,
+            "transaction_type": "BUY",
+            "quantity": "0",
+            "price": "10",
+        },
+    )
+    bad_type = client.post(
+        path,
+        json={
+            "ticker": apple.ticker,
+            "transaction_type": "DIVIDEND",
+            "quantity": "1",
+            "price": "10",
+        },
+    )
+    assert zero_quantity.status_code == 422
+    assert bad_type.status_code == 422
+
+
+def test_missing_portfolio_reads_are_not_found(client: TestClient) -> None:
+    missing = uuid4()
+    assert client.get(f"/portfolios/{missing}/transactions").status_code == 404
+    assert client.get(f"/portfolios/{missing}/holdings").status_code == 404

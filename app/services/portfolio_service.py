@@ -12,7 +12,6 @@ from app.db.models.transaction import TransactionType
 from app.repositories.portfolio_repository import PortfolioRepository
 from app.repositories.security_repository import SecurityRepository
 from app.repositories.transaction_repository import TransactionRepository
-from app.repositories.user_repository import UserRepository
 from app.schemas.holding import HoldingOut
 from app.schemas.portfolio import (
     PortfolioCreate,
@@ -25,29 +24,25 @@ from app.services.holdings import PositionLeg, aggregate_positions, quantity_hel
 
 
 class PortfolioService:
-    def __init__(self, session: Session) -> None:
-        self.users = UserRepository(session)
+    def __init__(self, session: Session, user_id: UUID) -> None:
+        self.user_id = user_id
         self.portfolios = PortfolioRepository(session)
         self.securities = SecurityRepository(session)
         self.transactions = TransactionRepository(session)
 
     def create_portfolio(self, payload: PortfolioCreate) -> PortfolioSummary: 
-        if self.users.get(payload.user_id) is None:
-            raise NotFoundError(f"User {payload.user_id} not found")
         portfolio = Portfolio(
-            user_id=payload.user_id,
+            user_id=self.user_id,
             name=payload.name,
             description=payload.description,
         )
         return PortfolioSummary.model_validate(self.portfolios.add(portfolio))
 
-#access if user exist, if yes list portfolios and return response schema
-    def list_portfolios(self, user_id: UUID) -> list[PortfolioSummary]: 
-        if self.users.get(user_id) is None:
-            raise NotFoundError(f"User {user_id} not found")
+#The authenticated user can only list their own portfolios.
+    def list_portfolios(self) -> list[PortfolioSummary]:
         return [
             PortfolioSummary.model_validate(row)
-            for row in self.portfolios.list_for_user(user_id)
+            for row in self.portfolios.list_for_user(self.user_id)
         ]
 
     def get_portfolio(self, portfolio_id: UUID) -> PortfolioDetail:
@@ -86,10 +81,13 @@ class PortfolioService:
         rows = self.transactions.list_for_portfolio(portfolio_id)
         return [self._transaction_out(row) for row in rows]
 
-    def add_transaction( 
+    def add_transaction(  #check ownership and lock the portfolio row for update
         self, portfolio_id: UUID, payload: TransactionCreate
     ) -> TransactionOut:
-        portfolio = self.portfolios.get_for_update(portfolio_id)
+        portfolio = self.portfolios.get_owned_for_update(
+            portfolio_id,
+            self.user_id,
+        )
         if portfolio is None:
             raise NotFoundError(f"Portfolio {portfolio_id} not found")
 
@@ -123,7 +121,7 @@ class PortfolioService:
         return self._transaction_out(saved)
 
     def _require_portfolio(self, portfolio_id: UUID) -> Portfolio:
-        portfolio = self.portfolios.get(portfolio_id)
+        portfolio = self.portfolios.get_owned(portfolio_id, self.user_id)
         if portfolio is None:
             raise NotFoundError(f"Portfolio {portfolio_id} not found")
         return portfolio

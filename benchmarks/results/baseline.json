@@ -1,0 +1,58 @@
+{
+  "label": "baseline",
+  "recorded_at": "2026-10-03T08:38:28.637644+00:00",
+  "database_version": "PostgreSQL 16.15 on aarch64-apple-darwin24.6.0, compiled by Apple clang version 17.0.0 (clang-1700.0.13.5), 64-bit",
+  "index_definition": "CREATE UNIQUE INDEX uq_prices_security_id_timestamp ON public.prices USING btree (security_id, \"timestamp\")",
+  "dataset": {
+    "total_price_rows": 10000000,
+    "benchmark_price_rows": 10000000
+  },
+  "query": {
+    "securities": 1000,
+    "days": 365,
+    "expected_rows": 365000,
+    "warmup_runs": 1,
+    "measured_runs": 5
+  },
+  "projected_history": {
+    "runs": 5,
+    "planning_ms_median": 0.068,
+    "execution_ms_median": 109.551,
+    "execution_ms_min": 108.764,
+    "execution_ms_max": 112.425,
+    "rows": 365000,
+    "shared_hit_blocks_median": 12118,
+    "shared_read_blocks_median": 0,
+    "heap_fetches_median": 0,
+    "nodes": [
+      "Sort",
+      "Nested Loop",
+      "Aggregate",
+      "Limit",
+      "Sort",
+      "Seq Scan",
+      "Index Scan"
+    ]
+  },
+  "wide_history": {
+    "runs": 5,
+    "planning_ms_median": 0.077,
+    "execution_ms_median": 133.387,
+    "execution_ms_min": 133.106,
+    "execution_ms_max": 141.409,
+    "rows": 365000,
+    "shared_hit_blocks_median": 12118,
+    "shared_read_blocks_median": 0,
+    "heap_fetches_median": 0,
+    "nodes": [
+      "Sort",
+      "Nested Loop",
+      "Aggregate",
+      "Limit",
+      "Sort",
+      "Seq Scan",
+      "Index Scan"
+    ]
+  },
+  "projection_execution_change_percent": -17.869807402520486
+}

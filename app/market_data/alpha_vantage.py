@@ -35,8 +35,9 @@ class AlphaVantageProvider(MarketDataProvider):
     ) -> None:
         if not api_key.strip():
             raise ProviderError(
-                "MARKET_DATA_API_KEY is empty; "
-                "set it or use MARKET_DATA_PROVIDER=stooq"
+                "MARKET_DATA_API_KEY is empty; set it, or use stooq for "
+                "daily bars and QUOTE_PROVIDER=simulator for live quotes",
+                retryable=False,
             )
         self._api_key = api_key.strip()
         self._client = client or httpx.Client(timeout=30.0)
@@ -97,7 +98,10 @@ class AlphaVantageProvider(MarketDataProvider):
         except (httpx.HTTPError, ValueError) as exc:
             raise ProviderError(f"Alpha Vantage HTTP error for {symbol}") from exc
         if not isinstance(payload, dict):
-            raise ProviderError(f"Alpha Vantage payload is not an object for {symbol}")
+            raise ProviderError(
+                f"Alpha Vantage payload is not an object for {symbol}",
+                retryable=False,
+            )
         _raise_for_vendor_note(payload, symbol)
         return payload
 
@@ -119,10 +123,14 @@ class AlphaVantageProvider(MarketDataProvider):
             payload = response.json()
         except ValueError as exc:
             raise ProviderError(
-                f"Alpha Vantage returned non-JSON for {symbol}"
+                f"Alpha Vantage returned non-JSON for {symbol}",
+                retryable=False,
             ) from exc
         if not isinstance(payload, dict):
-            raise ProviderError(f"Alpha Vantage payload is not an object for {symbol}")
+            raise ProviderError(
+                f"Alpha Vantage payload is not an object for {symbol}",
+                retryable=False,
+            )
         return payload
 
 
@@ -139,10 +147,16 @@ def parse_alpha_vantage_daily(
         )
     error = payload.get("Error Message")
     if error:
-        raise ProviderError(f"Alpha Vantage rejected {ticker}: {error}")
+        raise ProviderError(
+            f"Alpha Vantage rejected {ticker}: {error}",
+            retryable=False,
+        )
     series = payload.get(SERIES_KEY)
     if not isinstance(series, dict):
-        raise ProviderError(f"Alpha Vantage missing time series for {ticker}")
+        raise ProviderError(
+            f"Alpha Vantage missing time series for {ticker}",
+            retryable=False,
+        )
 
     bars: list[RawBar] = []
     for day_text, fields in series.items():
@@ -187,7 +201,10 @@ def parse_alpha_vantage_quote(payload: dict, ticker: str) -> LiveQuote:
     _raise_for_vendor_note(payload, ticker)
     raw = payload.get("Global Quote")
     if not isinstance(raw, dict):
-        raise ProviderError(f"Alpha Vantage missing Global Quote for {ticker}")
+        raise ProviderError(
+            f"Alpha Vantage missing Global Quote for {ticker}",
+            retryable=False,
+        )
     try:
         price = Decimal(str(raw["05. price"]))
         previous_text = raw.get("08. previous close")
@@ -197,9 +214,15 @@ def parse_alpha_vantage_quote(payload: dict, ticker: str) -> LiveQuote:
         volume = int(Decimal(str(raw["06. volume"])))
         day = date.fromisoformat(str(raw["07. latest trading day"]))
     except (KeyError, ArithmeticError, TypeError, ValueError) as exc:
-        raise ProviderError(f"Alpha Vantage quote for {ticker} is incomplete") from exc
+        raise ProviderError(
+            f"Alpha Vantage quote for {ticker} is incomplete",
+            retryable=False,
+        ) from exc
     if price <= 0 or not price.is_finite():
-        raise ProviderError(f"Alpha Vantage quote for {ticker} has no last price")
+        raise ProviderError(
+            f"Alpha Vantage quote for {ticker} has no last price",
+            retryable=False,
+        )
     return quote_from_parts(
         ticker=ticker,
         price=price,
@@ -218,7 +241,10 @@ def parse_alpha_vantage_overview(
     """Map OVERVIEW onto the fundamental columns. Missing fields stay null."""
     _raise_for_vendor_note(payload, ticker)
     if not payload.get("Symbol"):
-        raise ProviderError(f"Alpha Vantage overview for {ticker} is empty")
+        raise ProviderError(
+            f"Alpha Vantage overview for {ticker} is empty",
+            retryable=False,
+        )
 
     def _decimal(key: str) -> Decimal | None:
         text = payload.get(key)
@@ -253,7 +279,10 @@ def parse_alpha_vantage_news(payload: dict, ticker: str) -> list[dict]:
     _raise_for_vendor_note(payload, ticker)
     feed = payload.get("feed")
     if not isinstance(feed, list):
-        raise ProviderError(f"Alpha Vantage news for {ticker} has no feed")
+        raise ProviderError(
+            f"Alpha Vantage news for {ticker} has no feed",
+            retryable=False,
+        )
     items: list[dict] = []
     for row in feed:
         if not isinstance(row, dict):
@@ -268,6 +297,7 @@ def parse_alpha_vantage_news(payload: dict, ticker: str) -> list[dict]:
             for entry in entries:
                 if isinstance(entry, dict) and isinstance(entry.get("ticker"), str):
                     related.append(entry["ticker"])
+        image = row.get("banner_image")
         items.append(
             news_record(
                 headline=headline,
@@ -278,6 +308,7 @@ def parse_alpha_vantage_news(payload: dict, ticker: str) -> list[dict]:
                 tickers=related,
                 sentiment=sentiment if isinstance(sentiment, str) else None,
                 provider="alpha_vantage",
+                image_url=image if isinstance(image, str) else "",
             )
         )
     return items
@@ -288,4 +319,7 @@ def _raise_for_vendor_note(payload: dict, ticker: str) -> None:
         raise ProviderError(f"Alpha Vantage rate-limited or blocked for {ticker}")
     error = payload.get("Error Message")
     if error:
-        raise ProviderError(f"Alpha Vantage rejected {ticker}: {error}")
+        raise ProviderError(
+            f"Alpha Vantage rejected {ticker}: {error}",
+            retryable=False,
+        )

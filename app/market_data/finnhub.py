@@ -66,16 +66,22 @@ def parse_finnhub_quote(payload: dict, ticker: str) -> LiveQuote:
         ) else None
         unix = int(payload["t"])
     except (KeyError, ArithmeticError, TypeError, ValueError) as exc:
-        raise ProviderError(f"Finnhub quote for {ticker} is missing a price") from exc
-    if price <= 0 or not price.is_finite():
-        raise ProviderError(f"Finnhub quote for {ticker} has no last price")
+        raise ProviderError(
+            f"Finnhub quote for {ticker} is missing a price",
+            retryable=False,
+        ) from exc
+    if price <= 0 or not price.is_finite() or unix <= 0:
+        raise ProviderError(
+            f"Finnhub quote for {ticker} has no last price",
+            retryable=False,
+        )
     volume = None
     return quote_from_parts(
         ticker=ticker,
         price=price,
         previous_close=previous,
         volume=volume,
-        timestamp=datetime.fromtimestamp(unix, tz=UTC) if unix else datetime.now(UTC),
+        timestamp=datetime.fromtimestamp(unix, tz=UTC),
         source="finnhub",
         # REST /quote is not the trade stream, so it is not labeled realtime.
         timeliness="delayed",
@@ -95,6 +101,7 @@ def parse_finnhub_news(payload: list, ticker: str = "") -> list[dict]:
             stamp = datetime.fromtimestamp(int(published), tz=UTC).isoformat()
         except (TypeError, ValueError, OSError):
             stamp = ""
+        image = row.get("image")
         items.append(
             news_record(
                 headline=headline,
@@ -105,6 +112,7 @@ def parse_finnhub_news(payload: list, ticker: str = "") -> list[dict]:
                 tickers=[ticker] if ticker else [],
                 sentiment=None,
                 provider="finnhub",
+                image_url=image if isinstance(image, str) else "",
             )
         )
     return items
@@ -121,7 +129,8 @@ class FinnhubQuoteSource:
     ) -> None:
         if not api_key.strip():
             raise ProviderError(
-                "FINNHUB_API_KEY is empty; set it or use QUOTE_PROVIDER=simulator"
+                "FINNHUB_API_KEY is empty; set it or use QUOTE_PROVIDER=simulator",
+                retryable=False,
             )
         self._api_key = api_key.strip()
         self._client = client or httpx.Client(timeout=20.0)
@@ -140,7 +149,10 @@ class FinnhubQuoteSource:
             except (httpx.HTTPError, ValueError) as exc:
                 raise ProviderError(f"Finnhub HTTP error for {symbol}") from exc
             if not isinstance(payload, dict):
-                raise ProviderError(f"Finnhub quote for {symbol} is not an object")
+                raise ProviderError(
+                    f"Finnhub quote for {symbol} is not an object",
+                    retryable=False,
+                )
             quotes.append(parse_finnhub_quote(payload, symbol))
         return quotes
 
@@ -161,7 +173,10 @@ class FinnhubQuoteSource:
         except (httpx.HTTPError, ValueError) as exc:
             raise ProviderError(f"Finnhub news error for {symbol}") from exc
         if not isinstance(payload, list):
-            raise ProviderError(f"Finnhub news for {symbol} is not a list")
+            raise ProviderError(
+                f"Finnhub news for {symbol} is not a list",
+                retryable=False,
+            )
         return parse_finnhub_news(payload, symbol)
 
 

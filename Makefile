@@ -4,7 +4,7 @@ PYTEST ?= $(if $(wildcard .venv/bin/pytest),.venv/bin/pytest,pytest)
 RUFF ?= $(if $(wildcard .venv/bin/ruff),.venv/bin/ruff,ruff)
 ALEMBIC ?= $(if $(wildcard .venv/bin/alembic),.venv/bin/alembic,alembic)
 
-.PHONY: up down logs test lint migrate migrate-host seed seed-host ingest ingest-host benchmark-data benchmark-baseline benchmark-optimized benchmark-compare benchmark-cache
+.PHONY: up down logs test lint migrate migrate-host seed seed-host ingest ingest-host listings-host benchmark-data benchmark-baseline benchmark-optimized benchmark-compare benchmark-cache quote-worker web
 
 up:
 	$(COMPOSE) up --build -d
@@ -39,6 +39,9 @@ ingest:
 ingest-host:
 	$(PYTHON) scripts/ingest_market_data.py
 
+listings-host:
+	$(PYTHON) scripts/sync_listings.py
+
 benchmark-data:
 	PYTHONPATH=. $(PYTHON) scripts/generate_benchmark_data.py
 
@@ -57,3 +60,9 @@ benchmark-compare:
 
 benchmark-cache:
 	PYTHONPATH=. $(PYTHON) scripts/benchmark_cache.py --label cache-enabled
+
+quote-worker:
+	PYTHONPATH=. $(PYTHON) -m app.workers.quote_worker
+
+web:
+	cd web && npm install && npm run dev

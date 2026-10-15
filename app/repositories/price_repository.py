@@ -1,4 +1,4 @@
-from datetime import datetime
+from datetime import UTC, datetime
 from decimal import Decimal
 from uuid import UUID, uuid4
 
@@ -35,10 +35,28 @@ class PriceRepository:
         )
         return int(self.session.scalar(statement) or 0)
 
+    def latest(self, security_id: UUID) -> Price | None:
+        statement = (
+            select(Price)
+            .where(Price.security_id == security_id)
+            .order_by(Price.timestamp.desc())
+            .limit(1)
+        )
+        return self.session.scalar(statement)
+
+    def last_ingested_at(self, security_id: UUID) -> datetime | None:
+        statement = select(func.max(Price.ingested_at)).where(
+            Price.security_id == security_id
+        )
+        value = self.session.scalar(statement)
+        return value if isinstance(value, datetime) else None
+
     def upsert_bars(
         self,
         security_id: UUID,
         bars: list[NormalizedBar],
+        *,
+        source: str,
     ) -> int:
         """Insert or update bars. Unique (security_id, timestamp) is the key.
 
@@ -49,6 +67,7 @@ class PriceRepository:
             return 0
         insert = _dialect_insert(self.session)
         written = 0
+        ingested_at = datetime.now(UTC)
         for offset in range(0, len(bars), INSERT_CHUNK):
             window = bars[offset : offset + INSERT_CHUNK]
             payload = [
@@ -62,6 +81,8 @@ class PriceRepository:
                     "close": bar.close,
                     "adjusted_close": bar.adjusted_close,
                     "volume": bar.volume,
+                    "source": source,
+                    "ingested_at": ingested_at,
                 }
                 for bar in window
             ]
@@ -75,6 +96,8 @@ class PriceRepository:
                     "close": stmt.excluded.close,
                     "adjusted_close": stmt.excluded.adjusted_close,
                     "volume": stmt.excluded.volume,
+                    "source": stmt.excluded.source,
+                    "ingested_at": stmt.excluded.ingested_at,
                 },
             )
             result = self.session.execute(stmt)

@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import Link from "next/link";
+import LearnTerm from "../../components/LearnTerm";
 import Nav from "../../components/Nav";
 import { EmptyState, ErrorState, number, Pagination, percent, Skeleton } from "../../components/UI";
 import { api } from "../../lib/api";
@@ -129,7 +130,7 @@ export default function ScreenPage() {
           {loading ? <Skeleton lines={6} label="Running screen" /> : null}
           {!loading && !rows.length ? <EmptyState title="No screening results">Set filters and run the screen, or broaden your criteria.</EmptyState> : null}
           {!loading && rows.length ? <>
-            <div className="table-wrap"><table><thead><tr><th>Security</th><th>Sector</th><th className="numeric">ROE</th><th className="numeric">P/E</th><th className="numeric">Growth</th><th className="numeric">Market cap</th><th>As of</th></tr></thead>
+            <div className="table-wrap"><table><thead><tr><th>Security</th><th>Sector</th><th className="numeric"><LearnTerm slug="roe">ROE</LearnTerm></th><th className="numeric"><LearnTerm slug="pe-ratio">P/E</LearnTerm></th><th className="numeric">Growth</th><th className="numeric">Market cap</th><th>As of</th></tr></thead>
               <tbody>{rows.map((row) => <tr key={row.security_id}><td><Link className="ticker-link" href={`/securities/${row.ticker}`}>{row.ticker}</Link><br /><span className="muted">{row.name}</span></td><td>{row.sector}</td><td className="numeric">{percent(row.roe)}</td><td className="numeric">{number(row.pe_ratio, { maximumFractionDigits: 2 })}</td><td className="numeric">{percent(row.revenue_growth)}</td><td className="numeric">{number(row.market_cap, { notation: "compact", maximumFractionDigits: 1 })}</td><td>{row.as_of}</td></tr>)}</tbody>
             </table></div>
             <Pagination offset={offset} limit={limit} total={total} disabled={loading} onChange={(nextOffset) => runScreen(nextOffset, lastMode === "natural")} />

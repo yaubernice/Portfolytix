@@ -6,6 +6,12 @@ from collections.abc import Iterator
 os.environ["SCHEDULER_ENABLED"] = "false"
 # Unit/API tests use an explicit in-memory fake when they test caching.
 os.environ["CACHE_ENABLED"] = "false"
+# Phase 12 tests must not call a live language-model API.
+os.environ["AI_PROVIDER"] = "local"
+# Quote tests use an in-memory store. The worker is a separate process.
+os.environ["QUOTE_PROVIDER"] = "simulator"
+# News tests stay on the cache. A local .env must not call a headline vendor.
+os.environ["NEWS_PROVIDER"] = ""
 
 import pytest
 from sqlalchemy import create_engine, event, text

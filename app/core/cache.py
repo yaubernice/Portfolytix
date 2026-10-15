@@ -16,7 +16,7 @@ logger = logging.getLogger(__name__)
 PENDING_BUMPS = "cache_version_bumps"
 
 
-class CacheBackend(Protocol):
+class CacheBackend(Protocol): #define a protocol for the cache backend
     def get_json(self, key: str) -> object | None: ...
 
     def set_json(self, key: str, value: object, ttl_seconds: int) -> None: ...
@@ -30,7 +30,7 @@ class CacheBackend(Protocol):
     def close(self) -> None: ...
 
 
-class NullCache:
+class NullCache: #pretend caching do not exist
     """No-op backend used when caching is disabled."""
 
     def get_json(self, key: str) -> object | None:
@@ -52,7 +52,7 @@ class NullCache:
         return None
 
 
-class RedisCache:
+class RedisCache: #actual cache implementation using Redis
     """JSON cache with Redis-backed versions and aggregate counters.
 
     Redis failures degrade to cache misses. PostgreSQL remains the source of
@@ -75,16 +75,19 @@ class RedisCache:
         )
 
     def get_json(self, key: str) -> object | None:
+        # Is data already stored under this cache key?
         try:
             raw = self.client.get(self._key(key))
-            if raw is None:
+            if raw is None: #no data found, the application will then go to PostgreSQL
                 self._count("misses")
                 logger.info("cache_miss", extra={"cache_key": key})
                 return None
+            # On a hit, return without querying PostgreSQL.
             value = json.loads(raw)
             self._count("hits")
             logger.info("cache_hit", extra={"cache_key": key})
             return value
+        # On a read error, the application falls back to PostgreSQL.
         except (RedisError, json.JSONDecodeError, TypeError):
             self._count("errors")
             logger.warning("cache_read_failed", extra={"cache_key": key})
@@ -94,8 +97,9 @@ class RedisCache:
         try:
             self.client.set(
                 self._key(key),
+                # Serialize the Python object to JSON for Redis.
                 json.dumps(value, separators=(",", ":"), sort_keys=True),
-                ex=ttl_seconds,
+                ex=ttl_seconds, #set the expiration time TTL for the cache entry
             )
             self._count("sets")
             logger.info(
@@ -147,9 +151,10 @@ class RedisCache:
             return _stats_payload({"errors": 1})
 
     def close(self) -> None:
+        # Clean up the Redis connection when the application shuts down.
         self.client.close()
 
-    def _count(self, metric: str) -> None:
+    def _count(self, metric: str) -> None: #increment a counter for a specific metric
         try:
             self.client.hincrby(self._metrics_key(), metric, 1)
         except RedisError:
@@ -157,17 +162,21 @@ class RedisCache:
             return
 
     def _key(self, key: str) -> str:
+        # Create the actual Redis key used for cached data.
         return f"{self.prefix}:data:{key}"
 
     def _version_key(self, namespace: str) -> str:
+        # Create the Redis key where the version number is stored.
         return f"{self.prefix}:version:{namespace}"
 
     def _metrics_key(self) -> str:
+        # Store hit, miss, set, error, and invalidation counters here.
         return f"{self.prefix}:metrics"
 
 
 @lru_cache
 def get_cache() -> CacheBackend:
+    # Choose the cache implementation from configuration.
     if not settings.cache_enabled:
         return NullCache()
     return RedisCache(
@@ -178,20 +187,28 @@ def get_cache() -> CacheBackend:
 
 
 def queue_version_bump(session: Session, namespace: str) -> None:
+    # Queue invalidations until the transaction commits.
     """Queue invalidation in the DB transaction; apply it only after commit."""
     pending = session.info.setdefault(PENDING_BUMPS, set())
+    # Add the namespace to the set of queued invalidations.
     pending.add(namespace)
 
 
 def commit_and_invalidate(session: Session, cache: CacheBackend) -> None:
+    # Commit the transaction, then apply cache invalidations.
     """Commit PostgreSQL first, then publish queued Redis version bumps."""
+    if session.info.get("request_committed"):
+        return
     session.commit()
+    session.info["request_committed"] = True
+    # Get the invalidations queued during the transaction.
     pending = session.info.pop(PENDING_BUMPS, set())
     for namespace in sorted(pending):
-        cache.bump_version(namespace)
+        cache.bump_version(namespace) #apply the invalidations to the cache
 
 
 def _stats_payload(values: dict[str, int]) -> dict[str, int | float]:
+    # Convert raw counters into requests and hit-rate statistics.
     hits = values.get("hits", 0)
     misses = values.get("misses", 0)
     requests = hits + misses

@@ -44,7 +44,7 @@ export function dateTime(value) {
 
 export function StatusBadge({ value = "unknown" }) {
   const normalized = String(value).toLowerCase();
-  const tone = ["ok", "success", "completed", "fresh", "connected"].includes(normalized)
+  const tone = ["ok", "success", "completed", "fresh", "connected", "realtime"].includes(normalized)
     ? "positive"
     : ["failed", "error", "stale", "unavailable"].includes(normalized)
       ? "negative"

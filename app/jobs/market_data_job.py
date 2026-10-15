@@ -4,12 +4,14 @@ from __future__ import annotations
 
 import logging
 from datetime import UTC, date, datetime, timedelta
+from uuid import UUID
 
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from app.core.cache import queue_version_bump
 from app.core.config import settings
+from app.core.metrics import get_metrics
 from app.db.models import JobRun, JobStatus, JobTrigger
 from app.db.seed import SECURITIES
 from app.market_data.factory import build_provider
@@ -38,6 +40,9 @@ def run_market_data_ingest(
     session: Session,
     *,
     tickers: list[str] | None = None,
+    security_ids: list[UUID] | None = None,
+    exchange: str | None = None,
+    country: str | None = None,
     start: date,
     end: date,
     provider: MarketDataProvider | None = None,
@@ -45,13 +50,28 @@ def run_market_data_ingest(
     # use the given provider, otherwise build one from config
     adapter = provider or build_provider()
     service = MarketDataService(session, adapter) #create a service instance
-    return service.ingest(tickers or DEFAULT_TICKERS, start, end) #ingest the data
+    selected = tickers
+    # No selector means the demo list. An exchange or id list must not
+    # silently fall back to those seven names.
+    if selected is None and not security_ids and not exchange and not country:
+        selected = DEFAULT_TICKERS
+    return service.ingest(
+        selected,
+        start,
+        end,
+        security_ids=security_ids,
+        exchange=exchange,
+        country=country,
+    )
 
 
 def update_market_data(
     session: Session,
     *,
     tickers: list[str] | None = None,
+    security_ids: list[UUID] | None = None,
+    exchange: str | None = None,
+    country: str | None = None,
     start: date | None = None,
     end: date | None = None,
     provider: MarketDataProvider | None = None,
@@ -66,7 +86,7 @@ def update_market_data(
     trigger_value = str(trigger)
     # fail leftover running rows older than the stale timeout
     stale = timedelta(seconds=settings.job_stale_after_seconds)
-    expired = jobs.fail_stale_running(JOB_NAME, stale)
+    expired = jobs.fail_stale_running(JOB_NAME, stale) #fail stale jobs
     session.flush() #save the job to the database
     if expired:
         logger.warning(
@@ -78,6 +98,7 @@ def update_market_data(
 
     live = jobs.get_running(JOB_NAME) #check if the job is already running
     if live is not None:
+        get_metrics().increment("ingestion.skipped")
         skipped = _new_run( #create a new job run record for the skipped job
             trigger=trigger_value,
             status=JobStatus.SKIPPED,
@@ -92,7 +113,7 @@ def update_market_data(
 
     window_start, window_end = _resolve_window(start, end) 
     adapter = provider or build_provider()
-    run = _new_run(
+    run = _new_run( #create a new job run record for the running job
         trigger=trigger_value,
         status=JobStatus.RUNNING,
         window_start=window_start,
@@ -128,15 +149,20 @@ def update_market_data(
             "provider": adapter.name,
         },
     )
+    get_metrics().increment("ingestion.started")
     try:
         report = run_market_data_ingest( #ingest the data
             session,
             tickers=tickers,
+            security_ids=security_ids,
+            exchange=exchange,
+            country=country,
             start=window_start,
             end=window_end,
             provider=adapter,
         )
     except Exception as exc: #changes JobRun to failed status
+        get_metrics().increment("ingestion.failed")
         _finish(
             run,
             status=JobStatus.FAILED,
@@ -149,10 +175,18 @@ def update_market_data(
         return run
 
     _apply_report(run, report) #updates the JobRun record with the ingest report
+    get_metrics().increment(f"ingestion.{run.status}")
+    if run.finished_at is not None:
+        get_metrics().gauge(
+            "ingestion.last_finished_timestamp",
+            run.finished_at.timestamp(),
+        )
     if run.upserted > 0:
         queue_version_bump(session, "prices")
-    logger.info(
-        "job_finished", #job finished successfully
+    finished_cleanly = run.status == JobStatus.SUCCESS
+    log = logger.info if finished_cleanly else logger.warning
+    log(
+        "job_finished" if finished_cleanly else "job_finished_with_failures",
         extra={
             "job_name": JOB_NAME,
             "job_run_id": str(run.id),
@@ -212,6 +246,8 @@ def _apply_report(run: JobRun, report: IngestReport) -> None:
     run.upserted = sum(row.upserted for row in report.results)
     run.skipped_invalid = sum(row.skipped_invalid for row in report.results)
     run.failed_tickers = report.failed_tickers
+    run.symbols_requested = report.symbols_requested
+    run.symbols_omitted = report.symbols_omitted
     run.provider = report.provider
     if report.failed_tickers:
         _finish(

@@ -13,6 +13,13 @@ class PortfolioRepository:
     def get(self, portfolio_id: UUID) -> Portfolio | None: #get portfolio by id
         return self.session.get(Portfolio, portfolio_id)
 
+    def get_owned(self, portfolio_id: UUID, user_id: UUID) -> Portfolio | None:
+        statement = select(Portfolio).where(
+            Portfolio.id == portfolio_id,
+            Portfolio.user_id == user_id,
+        )
+        return self.session.scalar(statement)
+
     def get_for_update(self, portfolio_id: UUID) -> Portfolio | None: 
         """Lock the portfolio row so two fills cannot oversell concurrently.
 
@@ -22,6 +29,22 @@ class PortfolioRepository:
         return self.session.execute(
             select(Portfolio).where(Portfolio.id == portfolio_id).with_for_update()
         ).scalar_one_or_none()
+
+    def get_owned_for_update(
+        self,
+        portfolio_id: UUID,
+        user_id: UUID,
+    ) -> Portfolio | None:
+        """Lock the row only when it belongs to the authenticated user."""
+        statement = (
+            select(Portfolio)
+            .where(
+                Portfolio.id == portfolio_id,
+                Portfolio.user_id == user_id,
+            )
+            .with_for_update()
+        )
+        return self.session.scalar(statement)
 
     def list_for_user(self, user_id: UUID) -> list[Portfolio]:
         statement = (

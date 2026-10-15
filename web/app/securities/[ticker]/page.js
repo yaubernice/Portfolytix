@@ -2,7 +2,9 @@
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useParams } from "next/navigation";
+import LearnTerm from "../../../components/LearnTerm";
 import Nav from "../../../components/Nav";
+import NewsList from "../../../components/NewsList";
 import {
   dateTime,
   EmptyState,
@@ -24,6 +26,7 @@ function quoteStatus(quote) {
   if (value === "simulated") return "SIMULATED";
   if (value === "stale" || quote.is_stale) return "STALE";
   if (value === "delayed") return "DELAYED";
+  if (value === "historical") return "HISTORICAL";
   return "UNAVAILABLE";
 }
 
@@ -35,8 +38,9 @@ function ageLabel(seconds) {
   return `${Math.round(value / 3600)}h old`;
 }
 
-function Metric({ label, value }) {
-  return <div><dt>{label}</dt><dd>{value}</dd></div>;
+function Metric({ label, value, learn, ticker }) {
+  const shown = learn ? <LearnTerm slug={learn} ticker={ticker}>{label}</LearnTerm> : label;
+  return <div><dt>{shown}</dt><dd>{value}</dd></div>;
 }
 
 function FundamentalGroup({ title, children }) {
@@ -102,7 +106,7 @@ export default function SecurityPage() {
     try {
       const limit = selectedPeriod === "MAX" ? 5000 : 500;
       const [nextProfile, nextNews] = await Promise.all([
-        api(`/securities/${encodeURIComponent(ticker)}?period=${selectedPeriod}&history_limit=${limit}`),
+        api(`/securities/${encodeURIComponent(ticker)}?period=${selectedPeriod}&history_limit=${limit}${initial ? "&ensure_history=true" : ""}`),
         initial ? api(`/news?ticker=${encodeURIComponent(ticker)}`).catch(() => null) : Promise.resolve(news),
       ]);
       setProfile(nextProfile);
@@ -132,19 +136,27 @@ export default function SecurityPage() {
   }, [ticker]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const quote = profile?.live_quote;
-  const status = quoteStatus(quote);
-  const change = Number(quote?.change);
+  const bars = profile?.prices || [];
+  const lastBar = bars.length ? bars[bars.length - 1] : null;
+  const priorBar = bars.length > 1 ? bars[bars.length - 2] : null;
+  const usingClose = !quote && lastBar;
+  const shownPrice = quote?.price ?? lastBar?.close;
+  const priorClose = quote?.previous_close ?? priorBar?.close;
+  const change = shownPrice != null && priorClose != null ? Number(shownPrice) - Number(priorClose) : null;
+  const status = usingClose ? "HISTORICAL" : quoteStatus(quote);
   const changeTone = change > 0 ? "up" : change < 0 ? "down" : "";
   const freshnessTitle = quote
     ? `Source: ${quote.source}; timestamp: ${dateTime(quote.provider_timestamp || quote.timestamp)}; ${ageLabel(quote.age_seconds)}`
-    : "No current quote is available";
+    : usingClose
+      ? `Stored close from ${profile.history_source || "the historical provider"}. This is not a live quote.`
+      : "No current quote is available";
   const fundamentals = useMemo(() => profile ? [
-    ["Valuation", [["P/E ratio", number(profile.pe_ratio)], ["Price / book", number(profile.price_to_book)], ["Price / sales", number(profile.price_to_sales)], ["EPS", money(profile.eps, profile.currency)]]],
-    ["Profitability", [["ROE", percent(profile.roe)], ["ROA", percent(profile.roa)], ["Profit margin", percent(profile.profit_margin)], ["EBITDA", money(profile.ebitda, profile.currency)]]],
+    ["Valuation", [["P/E ratio", number(profile.pe_ratio), "pe-ratio"], ["Price / book", number(profile.price_to_book)], ["Price / sales", number(profile.price_to_sales)], ["EPS", money(profile.eps, profile.currency)]]],
+    ["Profitability", [["ROE", percent(profile.roe), "roe"], ["ROA", percent(profile.roa)], ["Profit margin", percent(profile.profit_margin)], ["EBITDA", money(profile.ebitda, profile.currency)]]],
     ["Growth", [["Revenue growth", percent(profile.revenue_growth)], ["Earnings growth", percent(profile.earnings_growth)]]],
     ["Scale", [["Market cap", money(profile.market_cap, profile.currency)], ["Revenue", money(profile.revenue, profile.currency)], ["Shares outstanding", number(profile.shares_outstanding)]]],
     ["Income & risk", [["Dividend yield", percent(profile.dividend_yield)], ["Beta", number(profile.beta)]]],
-  ] : [], [profile]);
+  ] : [], [profile, ticker]);
 
   async function addToWatchlist(event) {
     event.preventDefault();
@@ -191,20 +203,20 @@ export default function SecurityPage() {
             </header>
 
             <section className="current-quote" aria-labelledby="current-quote-title">
-              <div><p className="eyebrow" id="current-quote-title">Current quote</p><p className="current-price">{quote ? money(quote.price, profile.currency) : "Unavailable"}</p><p className={changeTone}>{quote ? `${money(quote.change, profile.currency)} (${percent(quote.change_percent)}) today` : "No current market quote"}</p></div>
+              <div><p className="eyebrow" id="current-quote-title">{usingClose ? "Latest close" : "Current quote"}</p><p className="current-price">{shownPrice != null ? money(shownPrice, profile.currency) : "Unavailable"}</p><p className={changeTone}>{quote ? `${money(quote.change, profile.currency)} (${percent(quote.change_percent)}) today` : usingClose ? "Stored daily close, not a live quote" : "No price is stored for this symbol yet"}</p></div>
               <dl className="quote-details">
-                <Metric label="Volume" value={number(quote?.volume)} />
-                <Metric label="Previous close" value={money(quote?.previous_close, profile.currency)} />
+                <Metric label="Volume" value={number(quote?.volume ?? (usingClose ? lastBar.volume : null))} />
+                <Metric label="Previous close" value={money(priorClose, profile.currency)} />
                 <Metric label="Bid" value={money(quote?.bid, profile.currency)} />
                 <Metric label="Ask" value={money(quote?.ask, profile.currency)} />
               </dl>
-              <p className="quote-source" title={freshnessTitle}>{quote ? `${quote.source} · ${dateTime(quote.provider_timestamp || quote.timestamp)} · ${ageLabel(quote.age_seconds)}` : "Source and timestamp unavailable"}</p>
+              <p className="quote-source" title={freshnessTitle}>{quote ? `${quote.source} · market ${dateTime(quote.provider_timestamp || quote.timestamp)} · received ${dateTime(quote.received_at)} · print ${ageLabel(quote.age_seconds)}` : usingClose ? `${profile.history_source || "stored"} · session ${dateTime(profile.latest_close_at)} · historical close` : "No live quote is published for this symbol, and the historical provider returned no daily price."}</p>
             </section>
 
             <div className="split-grid">
               <div className="stack">
                 <section className="panel" aria-labelledby="history-title">
-                  <div className="panel-header"><div><h2 id="history-title">Historical adjusted close</h2><p className="muted">Stored PostgreSQL daily series; distinct from the current quote.</p></div><span className="status status-neutral">{profile.history_timeliness}</span></div>
+                  <div className="panel-header"><div><h2 id="history-title">Historical adjusted close</h2><p className="muted">Stored daily bars. The session date is not a live quote time.</p></div><span className={`status ${profile.history_is_stale ? "status-negative" : "status-neutral"}`}>{profile.history_timeliness === "unavailable" ? "unavailable" : profile.history_is_stale ? "historical, stale" : "historical"}</span></div>
                   <div className="period-tabs" role="group" aria-label="History period">
                     {PERIODS.map((value) => <button type="button" key={value} aria-pressed={period === value} disabled={historyLoading} onClick={() => { setPeriod(value); load(value); }}>{value}</button>)}
                   </div>
@@ -214,13 +226,13 @@ export default function SecurityPage() {
 
                 <section className="panel" aria-labelledby="fundamentals-title">
                   <div className="panel-header"><div><h2 id="fundamentals-title">Fundamentals</h2><p className="muted">Complete available provider snapshot, grouped by category.</p></div></div>
-                  <div className="fundamentals-grid">{fundamentals.map(([title, values]) => <FundamentalGroup title={title} key={title}>{values.map(([label, value]) => <Metric key={label} label={label} value={value} />)}</FundamentalGroup>)}</div>
+                  <div className="fundamentals-grid">{fundamentals.map(([title, values]) => <FundamentalGroup title={title} key={title}>{values.map(([label, value, learn]) => <Metric key={label} label={label} value={value} learn={learn} ticker={ticker} />)}</FundamentalGroup>)}</div>
                   <p className="metadata">Provider: {profile.fundamentals_provider || profile.provider || "unavailable"} · As of: {profile.as_of || "unavailable"} · Updated: {dateTime(profile.fundamentals_updated_at)}</p>
                 </section>
 
                 <section className="panel" aria-labelledby="news-title">
                   <div className="panel-header"><div><h2 id="news-title">Recent news</h2><p className="muted">Provider: {news?.provider || "none"}</p></div></div>
-                  {!news?.items?.length ? <EmptyState title="No recent provider news">No cached headlines are available for this security.</EmptyState> : <div className="news-grid">{news.items.map((item) => <article className="news-card" key={item.url || item.headline}><p className="eyebrow">{item.source}{item.sentiment ? ` · ${item.sentiment}` : ""}</p><h3>{item.url ? <a href={item.url} target="_blank" rel="noreferrer">{item.headline}</a> : item.headline}</h3>{item.summary ? <p>{item.summary}</p> : null}<p className="muted">{item.provider || news.provider} · {item.published_at || "Time unavailable"}</p></article>)}</div>}
+                  {!news?.items?.length ? <EmptyState title="No recent provider news">No headlines are available for this security.</EmptyState> : <NewsList items={news.items} provider={news.provider} />}
                 </section>
               </div>
 

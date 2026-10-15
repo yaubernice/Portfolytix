@@ -31,9 +31,14 @@ def main(argv: list[str] | None = None) -> int:
     provider = build_provider(args.provider)
     session = SessionLocal()
     try:
+        tickers = args.tickers
+        if tickers is None and not args.exchange and not args.country:
+            tickers = DEFAULT_TICKERS
         run = update_market_data(
             session,
-            tickers=args.tickers or DEFAULT_TICKERS,
+            tickers=tickers,
+            exchange=args.exchange,
+            country=args.country,
             start=args.start,
             end=args.end,
             provider=provider,
@@ -56,7 +61,17 @@ def _parse(argv: list[str] | None) -> argparse.Namespace:
         "--ticker",
         dest="tickers",
         action="append",
-        help="Ticker to ingest (repeatable). Default: seeded universe.",
+        help="Ticker to ingest (repeatable). Default: the seven demo tickers.",
+    )
+    parser.add_argument(
+        "--exchange",
+        default=None,
+        help="Ingest active securities on this exchange, up to the configured cap.",
+    )
+    parser.add_argument(
+        "--country",
+        default=None,
+        help="Ingest active securities in this country, up to the configured cap.",
     )
     parser.add_argument("--start", type=date.fromisoformat, default=date(2024, 1, 2))
     parser.add_argument("--end", type=date.fromisoformat, default=date.today())
@@ -77,7 +92,8 @@ def _print_run(run) -> None:
         print(f"  error={run.error}")
     print(
         f"  fetched={run.fetched} accepted={run.accepted} "
-        f"upserted={run.upserted} dropped={run.skipped_invalid}"
+        f"upserted={run.upserted} dropped={run.skipped_invalid} "
+        f"requested={run.symbols_requested} omitted={run.symbols_omitted}"
     )
     if run.failed_tickers:
         print(f"  failed_tickers={','.join(run.failed_tickers)}")

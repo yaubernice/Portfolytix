@@ -8,6 +8,7 @@ from io import StringIO
 
 import httpx
 
+from app.market_data.capabilities import STOOQ
 from app.market_data.errors import ProviderError
 from app.market_data.provider import MarketDataProvider
 from app.market_data.types import RawBar
@@ -17,6 +18,7 @@ BASE_URL = "https://stooq.com/q/d/l/"
 
 class StooqProvider(MarketDataProvider):
     name = "stooq"
+    capabilities = STOOQ
 
     def __init__(self, client: httpx.Client | None = None) -> None:
         self._client = client or httpx.Client(timeout=30.0)
@@ -46,13 +48,19 @@ def parse_stooq_csv(
     """Parse Stooq daily CSV. No HTTP here so tests stay offline."""
     stripped = text.strip()
     if not stripped or stripped.lower().startswith("no data"):
-        raise ProviderError(f"Stooq returned no data for {ticker}")
+        raise ProviderError(
+            f"Stooq returned no data for {ticker}",
+            retryable=False,
+        )
 
     bars: list[RawBar] = []
     reader = StringIO(stripped)
     header = reader.readline()
     if "date" not in header.lower():
-        raise ProviderError(f"Stooq CSV missing header for {ticker}")
+        raise ProviderError(
+            f"Stooq CSV missing header for {ticker}",
+            retryable=False,
+        )
     for line in reader:
         parts = [part.strip() for part in line.split(",")]
         if len(parts) < 6:
@@ -74,6 +82,7 @@ def parse_stooq_csv(
                     high=Decimal(parts[2]),
                     low=Decimal(parts[3]),
                     close=close,
+                    # Stooq's daily CSV has no adjusted close column.
                     adjusted_close=close,
                     volume=int(Decimal(volume_text)),
                 )

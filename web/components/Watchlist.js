@@ -151,7 +151,7 @@ export default function Watchlist() {
           <div className="panel-header">
             <div>
               <h2 id="active-watchlist-title">{detail.name}</h2>
-              <p className="muted">{detail.items_total} securities</p>
+              <p className="muted">{detail.items_total} {detail.items_total === 1 ? "security" : "securities"}</p>
             </div>
             <div className="row">
               <button type="button" onClick={renameList}>Rename</button>

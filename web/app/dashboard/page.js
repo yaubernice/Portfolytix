@@ -2,8 +2,9 @@
 
 import Link from "next/link";
 import { useEffect, useState } from "react";
+import LearnTerm from "../../components/LearnTerm";
 import Nav from "../../components/Nav";
-import { EmptyState, ErrorState, KpiCard, money, percent, Skeleton, StatusBadge, TimeSeriesChart, dateTime } from "../../components/UI";
+import { EmptyState, ErrorState, KpiCard, money, number, percent, Skeleton, StatusBadge, TimeSeriesChart, dateTime } from "../../components/UI";
 import { useQuotes } from "../../components/useQuotes";
 import { api } from "../../lib/api";
 
@@ -66,6 +67,10 @@ export default function DashboardPage() {
     };
   }, [portfolioId]);
 
+  useEffect(() => {
+    if (portfolioId) sessionStorage.setItem("finsight_portfolio", portfolioId);
+  }, [portfolioId]);
+
   const quoteRows = Object.values(quotes).sort((a, b) => a.ticker.localeCompare(b.ticker)).slice(0, 8);
 
   return (
@@ -85,10 +90,11 @@ export default function DashboardPage() {
         {!loading && portfolios.length === 0 ? <EmptyState title="No portfolio found">Create a portfolio to populate portfolio analytics.</EmptyState> : null}
         <div className="cards">
           <KpiCard label="Market value" value={money(positions?.market_value)} detail="Current positions" />
-          <KpiCard label="Day P/L" value={money(positions?.day_pl)} tone={Number(positions?.day_pl) >= 0 ? "up" : "down"} detail="Live quote impact" />
-          <KpiCard label="Total return" value={percent(analytics?.total_return)} tone={Number(analytics?.total_return) >= 0 ? "up" : "down"} />
-          <KpiCard label="Volatility" value={percent(analytics?.volatility)} detail="Historical annualized" />
-          <KpiCard label="Max drawdown" value={percent(analytics?.max_drawdown)} tone="down" />
+          <KpiCard label={<LearnTerm slug="day-pl">Day P/L</LearnTerm>} value={money(positions?.day_pl)} tone={Number(positions?.day_pl) >= 0 ? "up" : "down"} detail="Current quote, or the stored close" />
+          <KpiCard label={<LearnTerm slug="time-weighted-return">Total return</LearnTerm>} value={percent(analytics?.total_return)} tone={Number(analytics?.total_return) >= 0 ? "up" : "down"} />
+          <KpiCard label={<LearnTerm slug="volatility">Volatility</LearnTerm>} value={percent(analytics?.volatility)} detail="Historical annualized" />
+          <KpiCard label={<LearnTerm slug="sharpe-ratio">Sharpe ratio</LearnTerm>} value={number(analytics?.sharpe_ratio, { maximumFractionDigits: 2 })} detail="From stored daily returns" />
+          <KpiCard label={<LearnTerm slug="max-drawdown">Max drawdown</LearnTerm>} value={percent(analytics?.max_drawdown)} tone="down" />
         </div>
         <div className="split-grid">
           <section className="panel">
@@ -105,7 +111,7 @@ export default function DashboardPage() {
                     <strong>{quote.ticker}</strong>
                     <p className={`quote-price ${tone}`}>{money(quote.price)}</p>
                     <p className={tone}>{money(quote.change)} · {percent(quote.change_percent)}</p>
-                    <small className="muted">{quote.timeliness} · {quote.source}</small>
+                    <small className="muted"><StatusBadge value={quote.timeliness || "unavailable"} /> {quote.source}</small>
                   </Link>;
                 })}
               </div>
@@ -114,10 +120,12 @@ export default function DashboardPage() {
           <section className="panel">
             <div className="panel-header"><h2>Data operations</h2><StatusBadge value={system?.status || "loading"} /></div>
             <dl className="detail-list">
-              <div><dt>Provider</dt><dd>{system?.provider?.name || "—"}</dd></div>
+              <div><dt>Quote provider</dt><dd>{system?.provider?.name || "—"}</dd></div>
+              <div><dt>Historical provider</dt><dd>{system?.provider?.historical_provider || "—"}</dd></div>
               <div><dt>Quotes</dt><dd>{system?.provider?.quote_count ?? "—"}</dd></div>
               <div><dt>Last ingestion</dt><dd>{dateTime(system?.ingestion?.finished_at)}</dd></div>
               <div><dt>Ingestion state</dt><dd><StatusBadge value={system?.ingestion?.status || "unavailable"} /></dd></div>
+              <div><dt>Failed symbols</dt><dd>{system?.ingestion?.failed_ticker_count ?? "—"}</dd></div>
               <div><dt>Worker</dt><dd><StatusBadge value={system?.worker ? "connected" : "unavailable"} /></dd></div>
             </dl>
           </section>

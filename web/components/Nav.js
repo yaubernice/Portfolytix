@@ -8,6 +8,8 @@ import { api, clearToken, readToken } from "../lib/api";
 const LINKS = [
   ["/dashboard", "Dashboard"],
   ["/portfolio", "Portfolio"],
+  ["/ideas", "Ideas"],
+  ["/news", "News"],
   ["/watchlist", "Watchlist"],
   ["/screen", "Screening"],
   ["/ask", "Ask"],
@@ -126,22 +128,26 @@ export default function Nav({ email }) {
                 event.currentTarget.blur();
               }
             }}
+            role="combobox"
+            aria-autocomplete="list"
             aria-controls="security-search-results"
             aria-expanded={Boolean(query)}
             autoComplete="off"
           />
           {query ? (
-            <div id="security-search-results" className="search-results" role="listbox" aria-label="Security results">
+            <>
               <p className="sr-only" aria-live="polite">{searching ? "Searching" : `${results.length} results`}</p>
-              {results.map((item) => (
-                <Link key={item.id} href={`/securities/${item.ticker}`} role="option" onClick={() => setQuery("")}>
-                  <strong>{item.ticker}</strong>
-                  <span>{item.name}</span>
-                  <small>{item.exchange}</small>
-                </Link>
-              ))}
+              <div id="security-search-results" className="search-results" role="listbox" aria-label="Security results">
+                {results.map((item) => (
+                  <Link key={item.id} href={`/securities/${item.ticker}`} role="option" onClick={() => setQuery("")}>
+                    <strong>{item.ticker}</strong>
+                    <span>{item.name}</span>
+                    <small>{item.exchange}</small>
+                  </Link>
+                ))}
+              </div>
               {!searching && results.length === 0 ? <p className="search-empty">No matching securities</p> : null}
-            </div>
+            </>
           ) : null}
         </div>
         <button type="button" className="icon-button" onClick={toggleTheme} aria-label={`Switch to ${theme === "dark" ? "light" : "dark"} theme`}>

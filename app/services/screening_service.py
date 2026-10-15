@@ -11,13 +11,14 @@ from app.repositories.fundamental_repository import (
     ScreenFilters,
 )
 from app.schemas.screening import (
+    CRITERIA_FIELDS,
     ScreenApplied,
     ScreenHit,
     ScreenRequest,
     ScreenResponse,
 )
 
-SCREENING_CACHE_SCHEMA = "v1"
+SCREENING_CACHE_SCHEMA = "v2"
 
 
 class ScreeningService:
@@ -39,38 +40,23 @@ class ScreeningService:
             return ScreenResponse.model_validate(cached)
 
         filters = ScreenFilters(
-            roe_min=payload.roe_min,
-            roe_max=payload.roe_max,
-            pe_min=payload.pe_min,
-            pe_max=payload.pe_max,
-            revenue_growth_min=payload.revenue_growth_min,
-            revenue_growth_max=payload.revenue_growth_max,
-            market_cap_min=payload.market_cap_min,
-            market_cap_max=payload.market_cap_max,
-            sector=payload.sector,
-            exchange=payload.exchange,
+            **{name: getattr(payload, name) for name in CRITERIA_FIELDS}
         )
         rows, total = self.fundamentals.screen(
             filters,
             limit=payload.limit,
             offset=payload.offset,
+            sort_by=payload.sort_by,
+            sort_direction=payload.sort_direction,
         )
         response = ScreenResponse( #return the response object to the API layer
             items=[_hit(security, row) for security, row in rows],
             total=total,
             limit=payload.limit,
             offset=payload.offset,
-            applied=ScreenApplied( #include the applied filters in the response
-                roe_min=payload.roe_min,
-                roe_max=payload.roe_max,
-                pe_min=payload.pe_min,
-                pe_max=payload.pe_max,
-                revenue_growth_min=payload.revenue_growth_min,
-                revenue_growth_max=payload.revenue_growth_max,
-                market_cap_min=payload.market_cap_min,
-                market_cap_max=payload.market_cap_max,
-                sector=payload.sector,
-                exchange=payload.exchange,
+            applied=ScreenApplied.model_validate(
+                # include the applied filters in the response
+                payload.model_dump(exclude={"limit", "offset"})
             ),
         )
         self.cache.set_json(
@@ -99,10 +85,23 @@ def _hit(security: Security, row: Fundamental) -> ScreenHit:
         name=security.name,
         exchange=security.exchange,
         sector=security.sector,
+        industry=security.industry,
         currency=security.currency,
         as_of=row.as_of,
         roe=row.roe,
         pe_ratio=row.pe_ratio,
         revenue_growth=row.revenue_growth,
         market_cap=row.market_cap,
+        eps=row.eps,
+        revenue=row.revenue,
+        profit_margin=row.profit_margin,
+        dividend_yield=row.dividend_yield,
+        beta=row.beta,
+        ebitda=row.ebitda,
+        shares_outstanding=row.shares_outstanding,
+        price_to_book=row.price_to_book,
+        price_to_sales=row.price_to_sales,
+        roa=row.roa,
+        earnings_growth=row.earnings_growth,
+        provider=row.provider,
     )

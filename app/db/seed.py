@@ -1,8 +1,9 @@
 """Idempotent seed of reference securities and synthetic daily bars.
 
 No live market-data API. Prices are a deterministic random walk so tests
-and local demos stay reproducible. Re-running the seed upserts securities
-by ticker and skips price rows that already exist.
+and local demos stay reproducible. These seven rows are demo listings,
+not the product universe. Re-running the seed upserts them by
+provider + provider_symbol and skips price rows that already exist.
 """
 
 from __future__ import annotations
@@ -206,16 +207,26 @@ def seed_market_data(
                 ticker=spec.ticker,
                 name=spec.name,
                 exchange=spec.exchange,
+                mic="XNAS",
                 sector=spec.sector,
+                country="US",
                 currency=spec.currency,
+                asset_type="equity",
+                provider="seed",
+                provider_symbol=spec.ticker,
+                is_active=True,
             )
             .on_conflict_do_update(
-                index_elements=["ticker"],
+                index_elements=["provider", "provider_symbol"],
                 set_={
                     "name": spec.name,
                     "exchange": spec.exchange,
+                    "mic": "XNAS",
                     "sector": spec.sector,
+                    "country": "US",
                     "currency": spec.currency,
+                    "asset_type": "equity",
+                    "is_active": True,
                     "updated_at": func.now(),
                 },
             )
@@ -275,6 +286,7 @@ def _seed_fundamentals(session: Session) -> int:
                 pe_ratio=Decimal(metrics["pe_ratio"]),
                 revenue_growth=Decimal(metrics["revenue_growth"]),
                 market_cap=Decimal(metrics["market_cap"]),
+                provider="seed",
             )
             .on_conflict_do_update(
                 index_elements=["security_id"],
@@ -284,6 +296,7 @@ def _seed_fundamentals(session: Session) -> int:
                     "pe_ratio": Decimal(metrics["pe_ratio"]),
                     "revenue_growth": Decimal(metrics["revenue_growth"]),
                     "market_cap": Decimal(metrics["market_cap"]),
+                    "provider": "seed",
                     "updated_at": func.now(),
                 },
             )

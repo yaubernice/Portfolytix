@@ -44,6 +44,12 @@ services:
       SCHEDULER_ENABLED: "true"
       MARKET_DATA_CRON: "0 22 * * *"
       MARKET_DATA_LOOKBACK_DAYS: "7"
+      MARKET_DATA_MAX_SECURITIES: "25"
+      MARKET_DATA_MAX_WINDOW_DAYS: "1825"
+      MARKET_DATA_MAX_ATTEMPTS: "3"
+      MARKET_DATA_RETRY_BACKOFF_SECONDS: "0"
+      MARKET_DATA_PAUSE_SECONDS: "0"
+      MARKET_DATA_ALLOW_FULL_HISTORY: "false"
       JOB_STALE_AFTER_SECONDS: "3600"
       CACHE_ENABLED: "true"
       REDIS_URL: redis://redis:6379/0
@@ -51,6 +57,33 @@ services:
       ANALYTICS_CACHE_TTL_SECONDS: "300"
       SCREENING_CACHE_TTL_SECONDS: "300"
       REDIS_SOCKET_TIMEOUT_SECONDS: "0.2"
+      JWT_SECRET_KEY: ${JWT_SECRET_KEY:-dev-only-change-this-secret-at-least-32-bytes}
+      JWT_ALGORITHM: HS256
+      JWT_ISSUER: finsight
+      JWT_ACCESS_TOKEN_MINUTES: "30"
+      AI_PROVIDER: local
+      AI_OPENAI_API: responses
+      AI_FALLBACK_TO_LOCAL: "true"
+      AI_API_KEY: ${AI_API_KEY:-}
+      AI_BASE_URL: https://api.openai.com/v1
+      AI_MODEL: gpt-4o-mini
+      AI_TIMEOUT_SECONDS: "20"
+      QUOTE_PROVIDER: ${QUOTE_PROVIDER:-simulator}
+      QUOTE_SYMBOLS: AAPL,MSFT,NVDA,AMZN,GOOGL,META,TSLA
+      QUOTE_POLL_SECONDS: "2"
+      QUOTE_TTL_SECONDS: "30"
+      QUOTE_STALE_AFTER_SECONDS: "15"
+      QUOTE_DELAYED_STALE_AFTER_SECONDS: "120"
+      HISTORY_STALE_AFTER_BUSINESS_DAYS: "3"
+      QUOTE_WORKER_HEARTBEAT_TTL_SECONDS: "30"
+      QUOTE_MAX_SYMBOLS: "50"
+      QUOTE_RECONNECT_SECONDS: "2"
+      QUOTE_SYMBOL_REFRESH_SECONDS: "30"
+      ALPHA_VANTAGE_REALTIME: "false"
+      NEWS_PROVIDER: ${NEWS_PROVIDER:-}
+      FINNHUB_API_KEY: ${FINNHUB_API_KEY:-}
+      NEWS_TTL_SECONDS: "900"
+      CORS_ORIGINS: http://localhost:3000,http://127.0.0.1:3000
     depends_on:
       db:
         condition: service_healthy
@@ -69,6 +102,63 @@ services:
       timeout: 3s
       retries: 5
       start_period: 8s
+
+  quotes:
+    build: .
+    command: ["python", "-m", "app.workers.quote_worker"]
+    environment:
+      APP_NAME: FinSight
+      ENVIRONMENT: local
+      DATABASE_URL: postgresql+psycopg://finsight:finsight@db:5432/finsight
+      CACHE_ENABLED: "true"
+      REDIS_URL: redis://redis:6379/0
+      CACHE_KEY_PREFIX: finsight
+      REDIS_SOCKET_TIMEOUT_SECONDS: "0.2"
+      QUOTE_PROVIDER: ${QUOTE_PROVIDER:-simulator}
+      QUOTE_SYMBOLS: AAPL,MSFT,NVDA,AMZN,GOOGL,META,TSLA
+      QUOTE_POLL_SECONDS: "2"
+      QUOTE_TTL_SECONDS: "30"
+      QUOTE_STALE_AFTER_SECONDS: "15"
+      QUOTE_DELAYED_STALE_AFTER_SECONDS: "120"
+      QUOTE_WORKER_HEARTBEAT_TTL_SECONDS: "30"
+      QUOTE_MAX_SYMBOLS: "50"
+      QUOTE_RECONNECT_SECONDS: "2"
+      QUOTE_SYMBOL_REFRESH_SECONDS: "30"
+      ALPHA_VANTAGE_REALTIME: "false"
+      NEWS_PROVIDER: ${NEWS_PROVIDER:-}
+      FINNHUB_API_KEY: ${FINNHUB_API_KEY:-}
+      MARKET_DATA_API_KEY: ${MARKET_DATA_API_KEY:-}
+      NEWS_TTL_SECONDS: "900"
+      LOG_LEVEL: INFO
+    depends_on:
+      redis:
+        condition: service_healthy
+      db:
+        condition: service_healthy
+    restart: unless-stopped
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "python",
+          "-c",
+          "from app.workers.quote_worker import build_worker_store; assert build_worker_store().get_worker_heartbeat()",
+        ]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+      start_period: 10s
+
+  web:
+    build:
+      context: ./web
+    ports:
+      - "3000:3000"
+    environment:
+      NEXT_PUBLIC_API_URL: http://127.0.0.1:18421
+    depends_on:
+      - api
+    restart: unless-stopped
 
 volumes:
   finsight_pg:

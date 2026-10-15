@@ -7,7 +7,8 @@ from app.schemas.holding import HoldingOut
 
 
 class PortfolioCreate(BaseModel):
-    user_id: UUID
+    model_config = ConfigDict(extra="forbid")
+
     name: str = Field(min_length=1, max_length=200)
     description: str | None = None
 

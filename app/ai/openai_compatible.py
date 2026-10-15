@@ -8,7 +8,11 @@ import httpx
 
 from app.ai.local import _text_chunks
 from app.ai.parsing import screen_from_model_json
-from app.ai.structured import interpretation_json_schema, screen_json_schema
+from app.ai.structured import (
+    explain_json_schema,
+    interpretation_json_schema,
+    screen_json_schema,
+)
 from app.core.exceptions import AppError
 from app.schemas.screening import ScreenRequest
 
@@ -34,6 +38,19 @@ _SCREEN_INSTRUCTION = (
     'earnings_growth) are decimals: 40% is "0.40". '
     "P/E, beta, price_to_book, and price_to_sales stay multiples. "
     "market_cap, revenue, eps, and ebitda are USD."
+)
+_EXPLAIN_INSTRUCTION = (
+    "Return one JSON object with keys what, formula, example, yours, watch. "
+    "The reader is new to finance. Each value is one short sentence, "
+    "about 20 words, with no extra paragraph. "
+    "what: what the word means. "
+    "formula: the standard formula, or empty if you are not sure. "
+    "Do not invent a formula. "
+    "example: one hypothetical number, and say it is hypothetical. "
+    "yours: one sentence using a figure from the evidence, or say no "
+    "portfolio figure applies. "
+    "watch: one limitation. Not advice and not a forecast. "
+    "Do not invent prices, holdings, or dates."
 )
 _INTERPRET_INSTRUCTION = (
     'Return one JSON object {"interpretation": string}. '
@@ -75,6 +92,16 @@ class OpenAICompatibleModel:
                 schema=screen_json_schema(),
             )
         )
+
+    def explain_term(self, term: str, evidence: dict) -> dict:
+        payload = json.dumps({"term": term, "evidence": evidence})
+        raw = self._complete(
+            _EXPLAIN_INSTRUCTION,
+            payload,
+            schema_name="term_explanation",
+            schema=explain_json_schema(),
+        )
+        return _explain_fields(raw)
 
     def interpret(self, question: str, evidence: dict) -> str:
         payload = json.dumps({"question": question, "evidence": evidence})
@@ -139,6 +166,43 @@ class OpenAICompatibleModel:
             return self._client.post(url, json=payload, headers=headers)
         with httpx.Client(timeout=self._timeout) as client:
             return client.post(url, json=payload, headers=headers)
+
+
+def _one_sentence(value: str) -> str:
+    text = " ".join(value.split())
+    if not text:
+        return ""
+    for mark in (". ", "? ", "! "):
+        if mark in text:
+            text = text.split(mark)[0] + mark.strip()
+            break
+    if len(text) > 160:
+        text = text[:157].rsplit(" ", 1)[0] + "…"
+    return text
+
+
+def _explain_fields(raw: dict) -> dict:
+    what = raw.get("what")
+    if not isinstance(what, str) or not what.strip():
+        legacy = raw.get("explanation")
+        what = legacy if isinstance(legacy, str) else ""
+    if not what.strip():
+        raise AppError("Language model returned no explanation", status_code=502)
+    formula = raw.get("formula", "")
+    if not isinstance(formula, str):
+        formula = ""
+
+    def line(name: str) -> str:
+        value = raw.get(name, "")
+        return _one_sentence(value) if isinstance(value, str) else ""
+
+    return {
+        "what": _one_sentence(what),
+        "formula": " ".join(formula.split())[:120],
+        "example": line("example"),
+        "yours": line("yours"),
+        "watch": line("watch"),
+    }
 
 
 def _load_json_object(text: str) -> dict:

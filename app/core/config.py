@@ -73,6 +73,12 @@ class Settings(BaseSettings):
     quote_ttl_seconds: int = 30
     # A provider tick older than this can no longer be presented as real-time.
     quote_stale_after_seconds: float = 15.0
+    # Delayed quotes go stale when FinSight has not refreshed them. The
+    # vendor print can be the previous session without being a failure.
+    quote_delayed_stale_after_seconds: float = 120.0
+    # Daily bars older than this many sessions are stale. Weekends and
+    # NYSE holidays are not sessions.
+    history_stale_after_business_days: int = 3
     quote_worker_heartbeat_ttl_seconds: int = 30
     # Watchlist names above this count are not subscribed in one worker pass.
     quote_max_symbols: int = 50
@@ -80,7 +86,7 @@ class Settings(BaseSettings):
     quote_symbol_refresh_seconds: float = 30.0
     # GLOBAL_QUOTE stays delayed unless the key's entitlement is real-time.
     alpha_vantage_realtime: bool = False
-    # Empty follows the quote provider. none stores no headlines.
+    # Empty follows the quote provider. yahoo needs no key. none stores none.
     news_provider: str = ""
     finnhub_api_key: str = ""
     news_ttl_seconds: int = 900

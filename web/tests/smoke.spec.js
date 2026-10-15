@@ -17,8 +17,12 @@ const security = {
 
 async function mockAuthenticatedApp(page) {
   await page.addInitScript((securityRow) => {
+    const originalFetch = window.fetch.bind(window);
     window.fetch = async (input, options = {}) => {
       const url = new URL(String(input), window.location.origin);
+      if (!url.href.includes("127.0.0.1:18421")) {
+        return originalFetch(input, options);
+      }
       let body = [];
       if (url.pathname.endsWith("/watchlists") && (options.method || "GET") === "GET") {
         body = {
@@ -89,10 +93,17 @@ async function mockAuthenticatedApp(page) {
 
 test("login is accessible and submits through the API", async ({ page }) => {
   await page.addInitScript(() => {
-    window.fetch = async () => new Response(
-      JSON.stringify({ access_token: "test-token" }),
-      { status: 200, headers: { "Content-Type": "application/json" } },
-    );
+    const originalFetch = window.fetch.bind(window);
+    window.fetch = async (input, options) => {
+      const url = new URL(String(input), window.location.origin);
+      if (!url.href.includes("127.0.0.1:18421")) {
+        return originalFetch(input, options);
+      }
+      return new Response(
+        JSON.stringify({ access_token: "test-token" }),
+        { status: 200, headers: { "Content-Type": "application/json" } },
+      );
+    };
   });
   await page.goto("/");
   await expect(page.getByRole("heading", { name: "Sign in" })).toBeVisible();
