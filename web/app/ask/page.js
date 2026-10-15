@@ -76,7 +76,7 @@ export default function AskPage() {
           </section>
           <aside className="panel">
             <h2>How answers work</h2>
-            <p className="muted">The assistant uses authenticated portfolio facts and backend calculations. Interpretations may come from a configured model or a deterministic template.</p>
+            <p className="muted">The model receives your question and calculated portfolio evidence. It cannot query the database. The badge says llm when a model wrote the answer. With no model configured, a local template restates that evidence.</p>
           </aside>
         </div>
         <section className="panel" aria-live="polite" aria-busy={["thinking", "streaming"].includes(state)}>

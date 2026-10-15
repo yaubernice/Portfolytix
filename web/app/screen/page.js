@@ -15,6 +15,27 @@ const RANGE_FILTERS = [
 ];
 
 const EMPTY_FILTERS = Object.fromEntries(RANGE_FILTERS.flatMap(([key]) => [[`${key}_min`, ""], [`${key}_max`, ""]]));
+const RATIO_FIELDS = new Set(["roe", "revenue_growth", "profit_margin", "dividend_yield", "roa", "earnings_growth"]);
+
+function appliedSummary(applied) {
+  if (!applied) return [];
+  const lines = [];
+  for (const key of ["sector", "industry", "exchange"]) {
+    if (applied[key]) lines.push(`${key} ${applied[key]}`);
+  }
+  for (const [key, value] of Object.entries(applied)) {
+    const match = key.match(/^(.*)_(min|max)$/);
+    if (!match || value === null || value === undefined || value === "") continue;
+    const [, name, bound] = match;
+    const shown = RATIO_FIELDS.has(name)
+      ? percent(value)
+      : name === "market_cap"
+        ? number(value, { notation: "compact", maximumFractionDigits: 1 })
+        : number(value, { maximumFractionDigits: 2 });
+    lines.push(`${name.replaceAll("_", " ")} ${bound} ${shown}`);
+  }
+  return lines;
+}
 
 export default function ScreenPage() {
   const [filters, setFilters] = useState({ ...EMPTY_FILTERS, sector: "", industry: "", exchange: "" });
@@ -29,6 +50,7 @@ export default function ScreenPage() {
   const [loading, setLoading] = useState(false);
   const [naturalQuery, setNaturalQuery] = useState("");
   const [disclaimer, setDisclaimer] = useState("");
+  const [parser, setParser] = useState("");
   const [lastMode, setLastMode] = useState("structured");
 
   async function runScreen(nextOffset = 0, natural = false) {
@@ -48,9 +70,15 @@ export default function ScreenPage() {
       setTotal(body.total);
       setOffset(body.offset);
       setDisclaimer(body.disclaimer);
+      setParser(body.parser || "");
       setLastMode(natural ? "natural" : "structured");
     } catch (err) {
       setError(err.message);
+      setRows([]);
+      setTotal(0);
+      setApplied(null);
+      setDisclaimer("");
+      setParser("");
     } finally {
       setLoading(false);
     }
@@ -88,13 +116,16 @@ export default function ScreenPage() {
         <section className="panel">
           <div className="panel-header"><div><h2>Natural-language screen</h2><p className="muted">The assistant converts your request into the same validated filters.</p></div></div>
           <form onSubmit={(event) => { event.preventDefault(); runScreen(0, true); }}>
-            <label className="field">Screen request<textarea rows={2} maxLength={500} value={naturalQuery} onChange={(event) => setNaturalQuery(event.target.value)} placeholder="Technology companies with ROE above 15% and P/E below 30" /></label>
+            <label className="field">Screen request<textarea rows={2} maxLength={500} value={naturalQuery} onChange={(event) => setNaturalQuery(event.target.value)} placeholder="Technology companies with ROE above 40% and P/E below 30" /></label>
             <button type="submit" disabled={loading || !naturalQuery.trim()}>Parse and screen</button>
+            <p className="muted">The sentence goes to the configured model, which returns filters. Results show those filters and whether a model produced them. In the seeded universe, technology is AAPL, MSFT, and NVDA, and only NVDA has ROE above 40%.</p>
           </form>
         </section>
         <ErrorState message={error} />
         <section className="panel" aria-live="polite">
-          <div className="panel-header"><div><h2>Results</h2><p className="muted">{total} matching securities</p></div>{applied ? <span className="status">{Object.values(applied).filter((value) => value !== null && value !== "ticker" && value !== "asc").length} filters</span> : null}</div>
+          <div className="panel-header"><div><h2>Results</h2><p className="muted">{total} matching securities</p></div>{applied ? <span className="status">{appliedSummary(applied).length} filters</span> : null}</div>
+          {appliedSummary(applied).length ? <p className="muted">Understood{parser ? ` by ${parser}` : ""}: {appliedSummary(applied).join(", ")}.</p> : null}
+          {lastMode === "natural" && applied && /\d/.test(naturalQuery) && !appliedSummary(applied).some((item) => item.includes("min") || item.includes("max")) ? <p className="muted">A number was in the question, and no minimum or maximum was applied.</p> : null}
           {loading ? <Skeleton lines={6} label="Running screen" /> : null}
           {!loading && !rows.length ? <EmptyState title="No screening results">Set filters and run the screen, or broaden your criteria.</EmptyState> : null}
           {!loading && rows.length ? <>

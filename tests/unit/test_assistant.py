@@ -42,6 +42,15 @@ def test_rules_parse_dividend_yield_and_profit_margin() -> None:
     assert parsed.profit_margin_min == Decimal("0.20")
 
 
+def test_rules_read_more_than_as_a_minimum() -> None:
+    parsed = parse_screen_text(
+        "technology companies with ROE more than 40% and P/E at most 30"
+    )
+    assert parsed.sector == "technology"
+    assert parsed.roe_min == Decimal("0.40")
+    assert parsed.pe_max == Decimal("30")
+
+
 def test_rules_reject_text_that_is_not_a_screen() -> None:
     with pytest.raises(AppError) as exc:
         parse_screen_text("OR 1=1; DROP TABLE prices")
@@ -83,6 +92,20 @@ def test_recent_window_can_show_higher_volatility() -> None:
     assert metrics["recent_volatility"] in text
 
 
+def test_model_json_drops_a_placeholder_sector() -> None:
+    parsed = screen_from_model_json({"roe_min": "0.40", "sector": "all"})
+    assert parsed.roe_min == Decimal("0.40")
+    assert parsed.sector is None
+
+
+def test_model_json_turns_a_percent_over_one_into_a_ratio() -> None:
+    parsed = screen_from_model_json({"roe_min": "40%", "pe_max": "25"})
+    assert parsed.roe_min == Decimal("0.40")
+    assert parsed.pe_max == Decimal("25")
+    parsed = screen_from_model_json({"roe_min": 40})
+    assert parsed.roe_min == Decimal("0.40")
+
+
 def test_openai_screen_uses_json_and_rejects_sql() -> None:
     seen: dict[str, object] = {}
 
@@ -117,10 +140,7 @@ def test_openai_screen_uses_json_and_rejects_sql() -> None:
     body = seen["body"]
     assert isinstance(body, dict)
     encoded = json.dumps(body).lower()
-    schema = body["response_format"]["json_schema"]["schema"]
-    assert body["response_format"]["type"] == "json_schema"
-    assert "sql" not in schema["properties"]
-    assert schema["additionalProperties"] is False
+    assert body["response_format"] == {"type": "json_object"}
     assert seen["auth"] == "Bearer test-key"
     assert "postgresql" not in encoded
     assert "session" not in encoded
@@ -281,6 +301,15 @@ def test_safe_tool_validation_rejects_unknown_operation() -> None:
     with pytest.raises(AppError) as exc:
         validate_tool_call({"name": "run_database_query", "ticker": "AAPL"})
     assert exc.value.status_code == 422
+
+
+def test_local_assistant_changes_the_answer_when_the_question_matches() -> None:
+    evidence = build_evidence(_analytics([None, Decimal("0.1")]))
+    largest = LocalAssistant().interpret("What is my largest position?", evidence)
+    performance = LocalAssistant().interpret("How did the portfolio perform?", evidence)
+    assert largest == "The largest current weight is AAPL at 1."
+    assert performance == "Full-sample total return is 0.1."
+    assert largest != performance
 
 
 def test_local_assistant_remains_evidence_only_for_unknown_question() -> None:
