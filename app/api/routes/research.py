@@ -2,7 +2,9 @@ from uuid import UUID
 
 from fastapi import APIRouter, Depends, Response, status
 
-from app.api.dependencies import get_research_service
+from app.ai.local import LocalAssistant
+from app.ai.provider import AssistantModel
+from app.api.dependencies import get_assistant_model, get_research_service
 from app.schemas.research import (
     AttentionResponse,
     FlagCreate,
@@ -21,8 +23,21 @@ router = APIRouter(tags=["research"])
 def recommendations(
     portfolio_id: UUID,
     service: ResearchService = Depends(get_research_service),
+    model: AssistantModel = Depends(get_assistant_model),
 ) -> RecommendationResponse:
-    return service.recommendations(portfolio_id)
+    result = service.recommendations(portfolio_id)
+    notes = [
+        {"ticker": item.ticker, "points": item.points} for item in result.items
+    ]
+    if notes:
+        try:
+            result.commentary = model.comment_on_ideas(notes)
+            result.commentary_source = model.interpretation_source
+        except Exception:
+            local = LocalAssistant()
+            result.commentary = local.comment_on_ideas(notes)
+            result.commentary_source = local.interpretation_source
+    return result
 
 
 @router.get(

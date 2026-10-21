@@ -14,7 +14,13 @@ class EvidenceItem(BaseModel):
     kind: Literal["fact", "metric"]
     name: str
     value: str
-    source: Literal["database", "calculation"]
+    source: Literal["database", "calculation", "provider", "unavailable"]
+    id: str = ""
+    label: str = ""
+    method: str = ""
+    as_of: str = ""
+    unit: str = ""
+    availability: Literal["available", "unavailable"] = "available"
 
 
 class AssistantAnswer(BaseModel):

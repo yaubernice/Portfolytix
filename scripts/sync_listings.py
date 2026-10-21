@@ -58,7 +58,7 @@ def _download(url: str) -> str:
     response = httpx.get(
         url,
         timeout=60.0,
-        headers={"User-Agent": "FinSight/1.0"},
+        headers={"User-Agent": "Portfolytix/1.0"},
         follow_redirects=True,
     )
     response.raise_for_status()

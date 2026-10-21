@@ -134,8 +134,9 @@ def get_research_service(
 def get_reference_service(
     db: Session = Depends(get_db),
     quotes: QuoteStore = Depends(get_quote_store),
+    model: AssistantModel = Depends(get_assistant_model),
 ) -> ReferenceService:
-    return ReferenceService(db, quotes)
+    return ReferenceService(db, quotes, model)
 
 
 def get_assistant_service(

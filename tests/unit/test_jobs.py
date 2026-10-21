@@ -10,7 +10,7 @@ from app.jobs.market_data_job import (
     default_ingest_window,
     update_market_data,
 )
-from app.jobs.scheduler import start_scheduler
+from app.jobs.scheduler import run_scheduled_update_market_data, start_scheduler
 from app.market_data.errors import ProviderError
 from app.market_data.provider import MarketDataProvider
 from app.market_data.types import RawBar
@@ -72,6 +72,31 @@ def test_default_ingest_window() -> None:
     start, end = default_ingest_window(date(2024, 1, 10), 7)
     assert start == date(2024, 1, 3)
     assert end == date(2024, 1, 10)
+
+
+def test_scheduled_history_uses_the_book_symbols(monkeypatch) -> None:
+    captured: dict[str, object] = {}
+
+    class _Session:
+        def close(self) -> None:
+            return None
+
+    def fake_update(_session: object, **kwargs: object) -> None:
+        captured.update(kwargs)
+
+    monkeypatch.setattr("app.jobs.scheduler.SessionLocal", lambda: _Session())
+    monkeypatch.setattr(
+        "app.quotes.symbols.load_book_symbols",
+        lambda _session, limit: ["AAPL", "GOOGL"][:limit],
+    )
+    monkeypatch.setattr("app.jobs.scheduler.update_market_data", fake_update)
+    monkeypatch.setattr(
+        "app.jobs.scheduler.commit_and_invalidate",
+        lambda *_args, **_kwargs: None,
+    )
+    run_scheduled_update_market_data()
+    assert captured["tickers"] == ["AAPL", "GOOGL"]
+    assert captured["trigger"] == "scheduler"
 
 
 def test_start_scheduler_respects_enabled_flag() -> None:

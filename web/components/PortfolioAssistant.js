@@ -1,17 +1,20 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import { ErrorState, Skeleton, StatusBadge } from "./UI";
+import { AnswerText, EvidenceList, answerOrigin } from "./EvidenceList";
+import GeneratingStatus, { ASK_PHASES } from "./GeneratingStatus";
+import { ErrorState, StatusBadge } from "./UI";
 import { authenticatedEventStream } from "../lib/api";
 
 const PRESETS = [
+  "Show a chart of my allocation.",
   "What drove my portfolio today?",
-  "What is my biggest concentration risk?",
   "Summarize my portfolio performance.",
 ];
 
 export default function PortfolioAssistant({ portfolioId }) {
   const [question, setQuestion] = useState(PRESETS[0]);
+  const [asked, setAsked] = useState("");
   const [text, setText] = useState("");
   const [evidence, setEvidence] = useState(null);
   const [state, setState] = useState("idle");
@@ -25,6 +28,7 @@ export default function PortfolioAssistant({ portfolioId }) {
     controllerRef.current?.abort();
     const controller = new AbortController();
     controllerRef.current = controller;
+    setAsked(question);
     setText("");
     setEvidence(null);
     setError("");
@@ -40,7 +44,14 @@ export default function PortfolioAssistant({ portfolioId }) {
           setState("streaming");
           setText((current) => current + (message.data.delta || ""));
         }
-        if (message.event === "done") setState("complete");
+        if (message.event === "done") {
+          setState("complete");
+          if (message.data.interpretation_source) {
+            setEvidence((current) => (
+              current ? { ...current, interpretation_source: message.data.interpretation_source } : current
+            ));
+          }
+        }
         if (message.event === "error") throw new Error(message.data.message || "Assistant provider failed");
       }
     } catch (err) {
@@ -68,24 +79,20 @@ export default function PortfolioAssistant({ portfolioId }) {
           <textarea value={question} onChange={(event) => setQuestion(event.target.value)} rows={2} maxLength={500} required />
         </label>
         <div className="row">
-          <button className="primary" type="submit" disabled={!portfolioId || ["thinking", "streaming"].includes(state)}>Ask FinSight</button>
+          <button className="primary" type="submit" disabled={!portfolioId || ["thinking", "streaming"].includes(state)}>Ask Portfolytix</button>
           {["thinking", "streaming"].includes(state) ? <button type="button" onClick={() => controllerRef.current?.abort()}>Cancel</button> : null}
         </div>
       </form>
       <ErrorState message={error} />
-      {state === "thinking" ? <Skeleton lines={2} label="FinSight is thinking" /> : null}
-      {text ? <div className="assistant-output"><p>{text}</p></div> : null}
+      {state === "thinking" ? <GeneratingStatus phases={ASK_PHASES} /> : null}
+      {text ? <AnswerText text={text} evidence={evidence} question={asked} streaming={state === "streaming"} /> : null}
+      {evidence?.interpretation_source ? <p className="metadata">{answerOrigin(evidence.interpretation_source)}</p> : null}
       {evidence ? (
-        <div className="evidence-grid">
-          {[...(evidence.facts || []), ...(evidence.metrics || [])].map((item) => (
-            <article className="evidence-item" key={`${item.kind}-${item.name}`}>
-              <p className="eyebrow">{item.kind}</p><strong>{item.name}</strong><p>{item.value === null || item.value === undefined || item.value === "" ? "—" : String(item.value)}</p>
-              <small className="muted">Source: {item.source}</small>
-            </article>
-          ))}
-        </div>
+        <details className="evidence-panel">
+          <summary>Evidence behind this answer</summary>
+          <EvidenceList facts={evidence.facts} metrics={evidence.metrics} />
+        </details>
       ) : null}
-      {evidence?.interpretation_source ? <p className="metadata">Interpretation source: {evidence.interpretation_source}</p> : null}
     </section>
   );
 }

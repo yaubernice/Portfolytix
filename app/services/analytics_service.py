@@ -32,8 +32,12 @@ from app.services.analytics import (
     total_return,
 )
 from app.services.holdings import PositionLeg, aggregate_positions
+from app.services.reference_service import fill_daily_history
 
-ANALYTICS_CACHE_SCHEMA = "v2"
+ANALYTICS_CACHE_SCHEMA = "v3"
+# About one trading year. Fewer stored closes make an annualized
+# volatility figure too sensitive to a handful of days.
+_HISTORY_FLOOR = 200
 
 
 class AnalyticsService:
@@ -72,6 +76,8 @@ class AnalyticsService:
             raise ConflictError("Portfolio has no transactions")
 
         fills = [_fill(row) for row in rows]
+        if settings.portfolio_history_backfill:
+            self._backfill_short_history(rows)
         security_ids = list({fill.security_id for fill in fills})
         bars = [
             CloseBar(security_id=sid, on=_as_utc_date(ts), close=close)
@@ -138,6 +144,16 @@ class AnalyticsService:
             ],
             assumptions=_assumptions(rf, periods),
         )
+
+    def _backfill_short_history(self, rows: list[Transaction]) -> None:
+        seen: set[UUID] = set()
+        for row in rows:
+            if row.security_id in seen:
+                continue
+            seen.add(row.security_id)
+            if self.prices.count_for_security(row.security_id) >= _HISTORY_FLOOR:
+                continue
+            fill_daily_history(self.portfolios.session, row.security.ticker)
 
     def _cache_key(self, portfolio_id: UUID) -> str:
         portfolio_version = self.cache.get_version(f"portfolio:{portfolio_id}")

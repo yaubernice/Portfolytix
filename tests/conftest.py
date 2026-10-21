@@ -12,6 +12,13 @@ os.environ["AI_PROVIDER"] = "local"
 os.environ["QUOTE_PROVIDER"] = "simulator"
 # News tests stay on the cache. A local .env must not call a headline vendor.
 os.environ["NEWS_PROVIDER"] = ""
+# Suggestion tests keep stored figures. A local .env must not call Yahoo.
+os.environ["IDEAS_LIVE_QUOTES"] = "false"
+# Position and trade tests keep the price in the request. A local .env must
+# not replace it with a vendor quote.
+os.environ["PROVIDER_MARKS"] = "false"
+# Analytics tests keep the bars they insert. A local .env must not call Yahoo.
+os.environ["PORTFOLIO_HISTORY_BACKFILL"] = "false"
 
 import pytest
 from sqlalchemy import create_engine, event, text

@@ -1,1 +1,1 @@
-"""FinSight application package."""
+"""Portfolytix application package."""

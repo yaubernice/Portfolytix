@@ -8,7 +8,7 @@ from app.schemas.screening import (
     ScreenRequest,
     ScreenResponse,
 )
-from app.services.assistant_service import natural_screen
+from app.services.assistant_service import natural_screen, screen_note
 from app.services.screening_service import ScreeningService
 
 router = APIRouter(prefix="/screen", tags=["screening"])
@@ -37,6 +37,9 @@ def screen_natural(
         screening=service,
         model=model,
     )
+    note, note_source = (None, None)
+    if payload.offset == 0:
+        note, note_source = screen_note(payload.query, result, model)
     return NaturalScreenResponse(
         query=payload.query,
         parser=parser,
@@ -46,4 +49,6 @@ def screen_natural(
         offset=result.offset,
         applied=result.applied,
         disclaimer=result.disclaimer,
+        note=note,
+        note_source=note_source,
     )

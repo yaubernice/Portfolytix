@@ -22,7 +22,7 @@ class QuoteStoreError(Exception):
 
 
 class QuoteStore(Protocol):
-    def publish(self, quote: LiveQuote) -> None: ...
+    def publish(self, quote: LiveQuote, *, ttl_seconds: int | None = None) -> None: ...
 
     def snapshot(self, tickers: list[str] | None = None) -> list[LiveQuote]: ...
 
@@ -67,7 +67,7 @@ class MemoryQuoteStore:
         self._news: dict[str, list[dict]] = {}
         self._heartbeat: dict | None = None
 
-    def publish(self, quote: LiveQuote) -> None:
+    def publish(self, quote: LiveQuote, *, ttl_seconds: int | None = None) -> None:
         self._quotes[quote.ticker] = quote
         for listener in self._listeners:
             listener.put(quote)
@@ -160,10 +160,11 @@ class RedisQuoteStore:
             socket_timeout=socket_timeout_seconds,
         )
 
-    def publish(self, quote: LiveQuote) -> None:
+    def publish(self, quote: LiveQuote, *, ttl_seconds: int | None = None) -> None:
         raw = quote.model_dump_json()
+        ttl = self.ttl_seconds if ttl_seconds is None else ttl_seconds
         try:
-            self.client.set(self._quote_key(quote.ticker), raw, ex=self.ttl_seconds)
+            self.client.set(self._quote_key(quote.ticker), raw, ex=max(int(ttl), 1))
             self.client.publish(self.channel, raw)
         except RedisError as exc:
             raise QuoteStoreError("Could not publish the live quote") from exc

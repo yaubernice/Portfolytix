@@ -1,4 +1,4 @@
-Alembic migrations for FinSight.
+Alembic migrations for Portfolytix.
 
 - `0001_baseline` — empty revision so later diffs have a parent.
 - `0002_phase2_models` — users, portfolios, securities, prices, transactions.

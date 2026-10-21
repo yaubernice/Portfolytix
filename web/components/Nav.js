@@ -4,20 +4,27 @@ import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
 import { api, clearToken, readToken } from "../lib/api";
+import { usePortfolio } from "./usePortfolio";
+import { CompanyLogo } from "./UI";
 
-const LINKS = [
-  ["/dashboard", "Dashboard"],
-  ["/portfolio", "Portfolio"],
-  ["/ideas", "Ideas"],
-  ["/news", "News"],
-  ["/watchlist", "Watchlist"],
-  ["/screen", "Screening"],
-  ["/ask", "Ask"],
+const GROUPS = [
+  ["Your money", [
+    ["/dashboard", "Dashboard"],
+    ["/portfolio", "Portfolio"],
+    ["/watchlist", "Watchlist"],
+  ]],
+  ["Discover", [
+    ["/ideas", "Ideas"],
+    ["/news", "News"],
+    ["/screen", "Screening"],
+    ["/ask", "Ask"],
+  ]],
 ];
 
-export default function Nav({ email }) {
+export default function Nav() {
   const pathname = usePathname();
   const router = useRouter();
+  const { portfolios, portfolioId, selectPortfolio, email } = usePortfolio();
   const [ready, setReady] = useState(false);
   const [theme, setTheme] = useState("light");
   const [query, setQuery] = useState("");
@@ -82,20 +89,29 @@ export default function Nav({ email }) {
       <a className="skip-link" href="#main-content">Skip to content</a>
       <aside className={`sidebar ${menuOpen ? "sidebar-open" : ""}`} aria-label="Primary navigation">
         <Link className="brand" href="/dashboard" onClick={() => setMenuOpen(false)}>
-          <span className="brand-mark">FS</span>
-          <span><strong>FinSight</strong><small>Market workspace</small></span>
+          <span className="brand-mark" aria-hidden="true">Px</span>
+          <span>
+            <strong>Portfolytix</strong>
+            <small>Understand your investments</small>
+          </span>
         </Link>
         <nav>
-          {LINKS.map(([href, label]) => {
-            const active = pathname === href || (href !== "/dashboard" && pathname.startsWith(`${href}/`));
-            return (
-              <Link key={href} href={href} aria-current={active ? "page" : undefined} onClick={() => setMenuOpen(false)}>
-                {label}
-              </Link>
-            );
-          })}
+          {GROUPS.map(([label, links]) => (
+            <div className="nav-group" key={label}>
+              <p className="nav-label">{label}</p>
+              {links.map(([href, name]) => {
+                const active = pathname === href || (href !== "/dashboard" && pathname.startsWith(`${href}/`));
+                return (
+                  <Link key={href} href={href} aria-current={active ? "page" : undefined} onClick={() => setMenuOpen(false)}>
+                    {name}
+                  </Link>
+                );
+              })}
+            </div>
+          ))}
         </nav>
         <div className="sidebar-footer">
+          <Link href="/data" onClick={() => setMenuOpen(false)}>Data status</Link>
           <span className="user-label" title={email || "Signed in"}>{email || "Signed in"}</span>
           <button
             type="button"
@@ -112,8 +128,16 @@ export default function Nav({ email }) {
       {menuOpen ? <button className="nav-scrim" aria-label="Close navigation" onClick={() => setMenuOpen(false)} /> : null}
       <header className="topbar">
         <button className="menu-button" type="button" aria-label="Toggle navigation" aria-expanded={menuOpen} onClick={() => setMenuOpen(!menuOpen)}>
-          ☰
+          Menu
         </button>
+        {portfolios.length ? (
+          <label className="field portfolio-switch">
+            Portfolio
+            <select aria-label="Portfolio" value={portfolioId} onChange={(event) => selectPortfolio(event.target.value)}>
+              {portfolios.map((row) => <option key={row.id} value={row.id}>{row.name}</option>)}
+            </select>
+          </label>
+        ) : null}
         <div className="global-search">
           <label className="sr-only" htmlFor="security-search">Search securities</label>
           <input
@@ -140,6 +164,7 @@ export default function Nav({ email }) {
               <div id="security-search-results" className="search-results" role="listbox" aria-label="Security results">
                 {results.map((item) => (
                   <Link key={item.id} href={`/securities/${item.ticker}`} role="option" onClick={() => setQuery("")}>
+                    <CompanyLogo ticker={item.ticker} size={24} />
                     <strong>{item.ticker}</strong>
                     <span>{item.name}</span>
                     <small>{item.exchange}</small>
@@ -151,7 +176,7 @@ export default function Nav({ email }) {
           ) : null}
         </div>
         <button type="button" className="icon-button" onClick={toggleTheme} aria-label={`Switch to ${theme === "dark" ? "light" : "dark"} theme`}>
-          {theme === "dark" ? "☀" : "☾"}
+          {theme === "dark" ? "Light" : "Dark"}
         </button>
       </header>
     </>

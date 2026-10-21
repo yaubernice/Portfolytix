@@ -5,14 +5,21 @@ from decimal import Decimal
 import httpx
 import pytest
 
+from app.core.config import settings
 from app.market_data.alpha_vantage import (
     AlphaVantageProvider,
     parse_alpha_vantage_daily,
 )
 from app.market_data.errors import ProviderError
+from app.market_data.factory import build_provider
 from app.market_data.normalize import normalize_bar
 from app.market_data.stooq import parse_stooq_csv
 from app.market_data.types import RawBar
+from app.market_data.yahoo_fundamentals import (
+    fetch_latest_quotes,
+    parse_yahoo_chart_quote,
+    parse_yahoo_quote,
+)
 from app.market_data.yahoo_history import parse_yahoo_chart
 
 
@@ -175,3 +182,124 @@ def test_parse_yahoo_chart_keeps_the_window_and_skips_a_null_close() -> None:
     assert bars[0].day == date(2024, 1, 2)
     assert bars[0].close == Decimal("11.2500")
     assert bars[0].volume == 1000
+
+
+def test_yahoo_snapshot_keeps_a_complete_company_and_drops_a_partial_one() -> None:
+    from app.market_data.yahoo_fundamentals import parse_yahoo_snapshot
+
+    def payload(**figures: object) -> dict:
+        def node(value: object) -> dict:
+            return {"raw": value}
+
+        return {
+            "quoteSummary": {
+                "result": [
+                    {
+                        "price": {"marketCap": node(figures["market_cap"])},
+                        "summaryDetail": {"trailingPE": node(figures["pe"])},
+                        "financialData": {
+                            "returnOnEquity": node(figures["roe"]),
+                            "revenueGrowth": node(figures["growth"]),
+                        },
+                        "assetProfile": {"sector": figures["sector"]},
+                    }
+                ]
+            }
+        }
+
+    parsed = parse_yahoo_snapshot(
+        payload(
+            market_cap=92_229_208,
+            pe=10.98,
+            roe=0.09323,
+            growth=0.124,
+            sector="Financial Services",
+        )
+    )
+    assert parsed is not None
+    assert parsed["sector"] == "Financial Services"
+    assert parsed["market_cap"] == Decimal("92229208")
+    missing = parse_yahoo_snapshot(
+        payload(
+            market_cap=182_552_464,
+            pe=None,
+            roe=-0.11,
+            growth=0.1,
+            sector="Financial Services",
+        )
+    )
+    assert missing is None
+
+
+def test_yahoo_quote_keeps_the_latest_price() -> None:
+    parsed = parse_yahoo_quote(
+        {
+            "quoteSummary": {
+                "result": [
+                    {
+                        "price": {
+                            "regularMarketPrice": {"raw": 189.25},
+                            "regularMarketTime": {"raw": 1761000000},
+                            "marketCap": {"raw": 2_800_000_000_000},
+                        },
+                        "summaryDetail": {"trailingPE": {"raw": 31.5}},
+                    }
+                ]
+            }
+        }
+    )
+    assert parsed is not None
+    assert parsed["price"] == Decimal("189.25")
+    assert parsed["market_cap"] == Decimal("2800000000000")
+    assert parsed["pe_ratio"] == Decimal("31.5")
+    assert parsed["quoted_at"] == datetime.fromtimestamp(1761000000, UTC)
+    assert parse_yahoo_quote({"quoteSummary": {"result": []}}) is None
+
+
+def test_yahoo_chart_quote_reads_the_latest_price() -> None:
+    parsed = parse_yahoo_chart_quote(
+        {
+            "chart": {
+                "result": [
+                    {
+                        "meta": {
+                            "regularMarketPrice": 339.5,
+                            "regularMarketTime": 1792526401,
+                            "chartPreviousClose": 342.94,
+                        }
+                    }
+                ]
+            }
+        }
+    )
+    assert parsed is not None
+    assert parsed["price"] == Decimal("339.5")
+    assert parsed["previous_close"] == Decimal("342.94")
+    assert parsed["market_cap"] is None
+    assert parsed["quoted_at"] == datetime.fromtimestamp(1792526401, UTC)
+    assert parse_yahoo_chart_quote({"chart": {"result": []}}) is None
+
+
+def test_yahoo_is_a_history_provider() -> None:
+    provider = build_provider("yahoo", client=httpx.Client())
+    assert provider.name == "yahoo"
+
+
+def test_latest_quotes_keep_successes_from_the_pool(monkeypatch) -> None:
+    monkeypatch.setattr(settings, "provider_quote_workers", 2)
+
+    def fake(symbol: str) -> tuple[str, dict | None]:
+        if symbol == "BAD":
+            return symbol, None
+        return symbol, {
+            "price": Decimal("2"),
+            "market_cap": None,
+            "pe_ratio": None,
+            "previous_close": Decimal("1"),
+            "quoted_at": None,
+        }
+
+    monkeypatch.setattr("app.market_data.yahoo_fundamentals._chart_quote", fake)
+    found = fetch_latest_quotes(["AAPL", "BAD", "MSFT", "AAPL"])
+    assert set(found) == {"AAPL", "MSFT"}
+    assert found["MSFT"]["price"] == Decimal("2")

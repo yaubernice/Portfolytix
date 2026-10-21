@@ -48,10 +48,13 @@ def parse_yahoo_news(payload: dict, ticker: str) -> list[dict]:
             if isinstance(source, str) and source.strip()
             else "Yahoo Finance"
         )
+        summary = row.get("summary")
+        if not isinstance(summary, str):
+            summary = ""
         items.append(
             news_record(
                 headline=headline,
-                summary="",
+                summary=summary,
                 source=publisher,
                 url=str(row.get("link") or ""),
                 published_at=stamp,
@@ -65,7 +68,7 @@ def parse_yahoo_news(payload: dict, ticker: str) -> list[dict]:
 
 
 class YahooNewsSource:
-    """Public search feed. It returns headlines and some photos, not a summary."""
+    """Public search feed. A summary is kept only when the payload includes one."""
 
     name = "yahoo"
     capabilities = YAHOO_NEWS
@@ -80,7 +83,7 @@ class YahooNewsSource:
         response = self._client.get(
             YAHOO_SEARCH,
             params={"q": symbol, "quotesCount": 0, "newsCount": 12},
-            headers={"User-Agent": "FinSight/1.0"},
+            headers={"User-Agent": "Portfolytix/1.0"},
         )
         try:
             response.raise_for_status()

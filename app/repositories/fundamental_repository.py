@@ -1,9 +1,10 @@
 from __future__ import annotations
 
+import re
 from dataclasses import dataclass
 from decimal import Decimal
 
-from sqlalchemy import Select, asc, desc, func, select
+from sqlalchemy import Select, and_, asc, desc, func, or_, select
 from sqlalchemy.orm import Session
 
 from app.db.models import Fundamental, Security
@@ -46,6 +47,8 @@ class ScreenFilters:
     sector: str | None = None
     industry: str | None = None
     exchange: str | None = None
+    asset_type: str | None = None
+    search: str | None = None
 
 
 class FundamentalRepository:
@@ -60,16 +63,25 @@ class FundamentalRepository:
         offset: int,
         sort_by: ScreenSort,
         sort_direction: SortDirection,
-    ) -> tuple[list[tuple[Security, Fundamental]], int]:
+    ) -> tuple[list[tuple[Security, Fundamental | None]], int]:
         """Latest snapshot per security matching the structured filters.
 
         SQL is always parameterized (``Fundamental.roe >= :roe_min``).
         Unknown filter keys never reach this method.
+        A sector, asset type, or name with no ratio bound includes listings
+        that have no fundamental snapshot. An empty screen stays limited to
+        stored snapshots.
         """
-        base = (
-            select(Security, Fundamental)
-            # Connect each Fundamental to its Security identity.
-            .join(Fundamental, Fundamental.security_id == Security.id)
+        join = Fundamental.security_id == Security.id
+        linked = (
+            select(Security, Fundamental).outerjoin(Fundamental, join)
+            if _listings_without_snapshots(filters)
+            else select(Security, Fundamental).join(Fundamental, join)
+        )
+        # Benchmark placeholders are inactive and are not part of the universe.
+        base = linked.where(
+            Security.is_active.is_(True),
+            ~Security.ticker.like("BENCH%"),
         )
         # Each call returns a new Select; the original is not mutated.
         filtered = _apply_filters(base, filters)
@@ -145,9 +157,59 @@ def _apply_filters(
         # Compare normalized lower-case values.
         statement = statement.where(func.lower(Security.sector) == filters.sector)
     if filters.industry is not None:
-        statement = statement.where(
-            func.lower(Security.industry) == filters.industry
-        )
+        statement = statement.where(func.lower(Security.industry) == filters.industry)
     if filters.exchange is not None:
         statement = statement.where(func.lower(Security.exchange) == filters.exchange)
+    if filters.asset_type is not None:
+        statement = statement.where(Security.asset_type == filters.asset_type)
+    if filters.search is not None:
+        statement = statement.where(_search_clause(filters.search))
     return statement
+
+
+def _listings_without_snapshots(filters: ScreenFilters) -> bool:
+    identity = any(
+        getattr(filters, name) is not None
+        for name in ("sector", "industry", "exchange", "asset_type", "search")
+    )
+    ratio = any(
+        getattr(filters, f"{name}_min") is not None
+        or getattr(filters, f"{name}_max") is not None
+        for name, _column in _RANGE_COLUMNS
+    )
+    return identity and not ratio
+
+
+def _search_clause(search: str):
+    # "China" is a name, not a ticker. Funds that exclude China stay out.
+    if search == "china":
+        named = or_(
+            Security.name.ilike("%china%", escape="\\"),
+            Security.name.ilike("%chinese%", escape="\\"),
+        )
+        return and_(
+            named,
+            ~Security.name.ilike("%ex-china%", escape="\\"),
+            ~Security.name.ilike("%ex china%", escape="\\"),
+        )
+    # A single ticker is exact, so VOO does not also return VOOB.
+    # The same word can also be part of a company name.
+    if " " not in search and re.fullmatch(r"[a-z0-9.]{1,8}", search):
+        return or_(
+            func.lower(Security.ticker) == search,
+            Security.name.ilike(_like(search), escape="\\"),
+        )
+    return and_(
+        *(
+            or_(
+                Security.ticker.ilike(_like(part), escape="\\"),
+                Security.name.ilike(_like(part), escape="\\"),
+            )
+            for part in search.split()
+        )
+    )
+
+
+def _like(part: str) -> str:
+    escaped = part.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
+    return f"%{escaped}%"

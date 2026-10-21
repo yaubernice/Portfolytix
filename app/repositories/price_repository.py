@@ -101,7 +101,11 @@ class PriceRepository:
                 },
             )
             result = self.session.execute(stmt)
-            written += result.rowcount or 0
+            count = result.rowcount
+            # Some drivers report -1 when the conflict update has no row count.
+            if count is None or count < 0:
+                count = len(window)
+            written += count
         return written
 
 

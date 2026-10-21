@@ -28,6 +28,38 @@ def explain_json_schema() -> dict:
     }
 
 
+def story_json_schema() -> dict:
+    return {
+        "type": "object",
+        "properties": {
+            "about": {"type": "string"},
+            "points": {"type": "array", "items": {"type": "string"}},
+        },
+        "required": ["about", "points"],
+        "additionalProperties": False,
+    }
+
+
+def news_json_schema() -> dict:
+    return {
+        "type": "object",
+        "properties": {
+            "briefs": {"type": "array", "items": {"type": "string"}},
+        },
+        "required": ["briefs"],
+        "additionalProperties": False,
+    }
+
+
+def idea_json_schema() -> dict:
+    return {
+        "type": "object",
+        "properties": {"commentary": {"type": "string"}},
+        "required": ["commentary"],
+        "additionalProperties": False,
+    }
+
+
 def interpretation_json_schema() -> dict:
     return {
         "type": "object",

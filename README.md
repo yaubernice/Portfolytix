@@ -1,4 +1,4 @@
-# FinSight
+# Portfolytix
 
 Personal finance analytics API. Phases 1–12 are the learning backend: FastAPI, PostgreSQL, Alembic, portfolio analytics, daily-bar ingest, screening, a 10-million-row benchmark, Redis caching, JWT, and an assistant that answers from stored portfolio evidence. Live quotes, a separate market worker, structured model output, and a Next.js dashboard sit on that same boundary. Holdings are derived from the ledger. `/ui` is the small static demo. `web/` is the live dashboard.
 
@@ -21,7 +21,7 @@ Schema changes go through Alembic, not `Base.metadata.create_all()`. Phase 2 add
 
 ## Why I built this
 
-I wanted a realistic place to practice a production-shaped backend: settings from the environment, structured logs, migrations as versioned code, and a Compose file that actually boots the API and the database together. FinSight's product idea is personal portfolio analytics. Phase 2 locks the relational model so later APIs and analytics sit on constraints and indexes instead of growing out of a single script.
+I wanted a realistic place to practice a production-shaped backend: settings from the environment, structured logs, migrations as versioned code, and a Compose file that actually boots the API and the database together. Portfolytix's product idea is personal portfolio analytics. Phase 2 locks the relational model so later APIs and analytics sit on constraints and indexes instead of growing out of a single script.
 
 ## Architecture
 
@@ -93,7 +93,7 @@ Finnhub WebSocket or Alpha Vantage GLOBAL_QUOTE or simulator
 
 `QUOTE_PROVIDER=simulator` is the default and needs no API key. Its quotes are labeled `simulated`, not realtime. The worker follows active watchlist tickers, up to `QUOTE_MAX_SYMBOLS`. With no watchlist items it falls back to `QUOTE_SYMBOLS`. `QUOTE_PROVIDER=finnhub` subscribes to the trade stream and reconnects after a dropped socket. Those trades start as `realtime`; once `QUOTE_STALE_AFTER_SECONDS` passes they become `stale`. `QUOTE_PROVIDER=alpha_vantage` polls `GLOBAL_QUOTE`, labeled `delayed` unless `ALPHA_VANTAGE_REALTIME=true`. It can refresh fundamentals onto an existing row. Headlines stay in Redis (`finsight:news:{ticker}`) and are not invented by the simulator. Set `NEWS_PROVIDER=none` to skip news, or `finnhub` / `alpha_vantage` when a key should fill the cache.
 
-Each live quote exposes the provider timestamp, the time FinSight received it, age, source, and `timeliness`. Positions copy that freshness. `GET /ready` checks PostgreSQL and Redis. `GET /status` reports the quote provider, the latest ingest job, cache counters, the worker heartbeat, and operational counters. The worker heartbeat is Redis state, not a database row.
+Each live quote exposes the provider timestamp, the time Portfolytix received it, age, source, and `timeliness`. Positions copy that freshness. `GET /ready` checks PostgreSQL and Redis. `GET /status` reports the quote provider, the latest ingest job, cache counters, the worker heartbeat, and operational counters. The worker heartbeat is Redis state, not a database row.
 
 The assistant still receives facts and metrics only. `AI_PROVIDER=openai` uses the Responses API by default (`AI_OPENAI_API=responses`) and can fall back to Chat Completions (`AI_OPENAI_API=chat`). Structured screens and interpretations use strict JSON schemas. `POST /portfolios/{id}/ask/stream` sends server-sent events after ownership and evidence are loaded. The browser never sees the API key. `POST /assistant/tools/execute` runs one authenticated allowlisted operation: portfolio analytics, screening, a current quote, fundamentals, or recent news. Fields named `sql`, `query`, `raw_sql`, or `database_query` are rejected.
 
@@ -295,7 +295,7 @@ INSERT … ON CONFLICT (security_id, timestamp) DO UPDATE
 PostgreSQL prices
 ```
 
-**Why a provider interface.** The rest of FinSight (analytics, holdings) reads `prices`. If Alpha Vantage changes or the free tier disappears, only `app/market_data/alpha_vantage.py` changes. `MarketDataService` never imports a vendor client.
+**Why a provider interface.** The rest of Portfolytix (analytics, holdings) reads `prices`. If Alpha Vantage changes or the free tier disappears, only `app/market_data/alpha_vantage.py` changes. `MarketDataService` never imports a vendor client.
 
 | Provider | Env | Key | Notes |
 | --- | --- | --- | --- |
@@ -335,7 +335,7 @@ FastAPI process
 
 **Why APScheduler, not Celery/RQ.** Celery needs a broker (Redis or RabbitMQ). Redis is Phase 9. The spec said start simple and design so a real queue can be added later. APScheduler runs **in the API process**, on a thread, with a cron trigger. The job function is the same `update_market_data` the CLI calls. Swapping to a worker process later means pointing that worker at the same function; the HTTP app does not change.
 
-**Tradeoff.** The scheduler dies with the API process. Two Uvicorn workers would start two schedulers and double-fire the cron. FinSight’s Dockerfile runs **one** Uvicorn worker. The unique partial index `uq_job_runs_running_job_name` is the safety net if that ever changes: a second process that tries to insert another `running` row loses the race and records `skipped`.
+**Tradeoff.** The scheduler dies with the API process. Two Uvicorn workers would start two schedulers and double-fire the cron. Portfolytix’s Dockerfile runs **one** Uvicorn worker. The unique partial index `uq_job_runs_running_job_name` is the safety net if that ever changes: a second process that tries to insert another `running` row loses the race and records `skipped`.
 
 **Why 22:00 UTC.** US cash equities close at 16:00 Eastern. That is 20:00 UTC in EDT and 21:00 UTC in EST. 22:00 UTC is after both, so the vendor has time to publish the daily bar. Override with `MARKET_DATA_CRON`.
 
@@ -460,7 +460,7 @@ Portfolios are a collection; fills belong to one portfolio, so they are nested (
 
 There is still no holdings table. Analytics rebuilds positions from transactions each request, then marks them with the `prices` rows. That is the correct default until Phase 8 measures it on a large dataset.
 
-Alternative we did **not** pick: money-weighted IRR. IRR answers “what compound rate did *this cash-flow schedule* earn?” TWR answers “how did the strategy perform regardless of when money was added?” FinSight’s product question is the second one.
+Alternative we did **not** pick: money-weighted IRR. IRR answers “what compound rate did *this cash-flow schedule* earn?” TWR answers “how did the strategy perform regardless of when money was added?” Portfolytix’s product question is the second one.
 
 ### Concurrent updates
 
@@ -714,7 +714,7 @@ interpretation
 | Field | Source |
 | --- | --- |
 | `facts` | Stored transactions, holdings, and prices |
-| `metrics` | FinSight calculations (return, volatility, drawdown, weights) |
+| `metrics` | Portfolytix calculations (return, volatility, drawdown, weights) |
 | `interpretation` | A template, or a model asked to restate that evidence |
 
 A month-over-month volatility comparison needs 42 daily returns. A shorter sample says the history is insufficient. It does not claim volatility increased. Historical allocation is not stored, so the answer does not invent an allocation change.
@@ -725,7 +725,7 @@ A month-over-month volatility comparison needs 42 daily returns. A shorter sampl
 
 Screen results accept `sort_by` of `ticker`, `roe`, `pe_ratio`, `revenue_growth`, or `market_cap`, and `sort_direction` of `asc` or `desc`. The repository maps that enum onto columns. A client cannot send an `ORDER BY` string. Natural-language sort and pagination come from the HTTP body, not from model JSON.
 
-Provider capabilities are explicit. The simulator supports none of historical bars, fundamentals, news, delayed vendor quotes, or a realtime stream. Stooq supports historical daily bars and has no adjusted-close column. Alpha Vantage supports delayed quotes, historical daily bars, fundamentals, and news. Finnhub supports a realtime trade stream, a delayed REST quote, and news. FinSight does not claim coverage beyond the securities stored in PostgreSQL.
+Provider capabilities are explicit. The simulator supports none of historical bars, fundamentals, news, delayed vendor quotes, or a realtime stream. Stooq supports historical daily bars and has no adjusted-close column. Alpha Vantage supports delayed quotes, historical daily bars, fundamentals, and news. Finnhub supports a realtime trade stream, a delayed REST quote, and news. Portfolytix does not claim coverage beyond the securities stored in PostgreSQL.
 
 ## Testing
 
@@ -863,7 +863,7 @@ Copy `.env.example` to `.env` only if you run Uvicorn on the host against the pu
 | `JOB_STALE_AFTER_SECONDS` | Expire leftover `running` rows (default `3600`) |
 | `CACHE_ENABLED` | Enable Redis read-through caching (default `true`) |
 | `REDIS_URL` | Redis connection URL |
-| `CACHE_KEY_PREFIX` | Namespace all FinSight keys (default `finsight`) |
+| `CACHE_KEY_PREFIX` | Namespace all Portfolytix keys (default `finsight`) |
 | `ANALYTICS_CACHE_TTL_SECONDS` | Analytics TTL (default `300`) |
 | `SCREENING_CACHE_TTL_SECONDS` | Screening TTL (default `300`) |
 | `REDIS_SOCKET_TIMEOUT_SECONDS` | Fail-open timeout (default `0.2`) |

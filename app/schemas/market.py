@@ -1,7 +1,7 @@
 from datetime import date, datetime
 from uuid import UUID
 
-from pydantic import BaseModel
+from pydantic import BaseModel, ConfigDict, Field
 
 from app.quotes.models import LiveQuote
 from app.schemas.common import DecimalStr, OptionalDecimalStr
@@ -14,6 +14,8 @@ class QuotesResponse(BaseModel):
 class NewsItem(BaseModel):
     headline: str
     summary: str = ""
+    brief: str = ""
+    brief_source: str = ""
     source: str
     url: str = ""
     published_at: str = ""
@@ -21,6 +23,21 @@ class NewsItem(BaseModel):
     sentiment: str | None = None
     provider: str = ""
     image_url: str = ""
+
+
+class NewsReadIn(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    url: str = Field(min_length=12, max_length=1000)
+    headline: str = Field(min_length=1, max_length=300)
+
+
+class NewsReadOut(BaseModel):
+    headline: str
+    about: str
+    points: list[str] = []
+    source: str
+    note: str
 
 
 class NewsResponse(BaseModel):

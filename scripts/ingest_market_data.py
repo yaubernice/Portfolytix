@@ -78,7 +78,7 @@ def _parse(argv: list[str] | None) -> argparse.Namespace:
     parser.add_argument(
         "--provider",
         default=None,
-        help="alpha_vantage or stooq (default: MARKET_DATA_PROVIDER)",
+        help="yahoo, stooq, or alpha_vantage (default: MARKET_DATA_PROVIDER)",
     )
     return parser.parse_args(argv)
 

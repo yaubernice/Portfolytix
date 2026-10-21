@@ -95,6 +95,8 @@ def test_other_user_cannot_ask_about_a_portfolio(
         },
     )
     assert response.status_code == 404
+    assert "facts" not in response.json()
+    assert "interpretation" not in response.json()
     streamed = client.post(
         f"/portfolios/{portfolio['id']}/ask/stream",
         json={"question": "What is my volatility?"},
@@ -103,6 +105,8 @@ def test_other_user_cannot_ask_about_a_portfolio(
         },
     )
     assert streamed.status_code == 404
+    assert "facts" not in streamed.json()
+    assert "interpretation" not in streamed.json()
 
 
 def test_ask_without_transactions_is_conflict(
@@ -115,6 +119,131 @@ def test_ask_without_transactions_is_conflict(
         json={"question": "Why did volatility increase?"},
     )
     assert response.status_code == 409
+
+
+def test_ask_weighted_roe_uses_the_stored_company_figure(
+    client: TestClient,
+    sqlite_session: Session,
+    user: User,
+    apple: Security,
+) -> None:
+    sqlite_session.add(
+        Fundamental(
+            security_id=apple.id,
+            as_of=date.today(),
+            roe=Decimal("0.15"),
+            pe_ratio=Decimal("20"),
+            revenue_growth=Decimal("0.10"),
+            market_cap=Decimal("1000000000"),
+        )
+    )
+    sqlite_session.flush()
+    response = _ask_about_apple(
+        client,
+        sqlite_session,
+        user,
+        apple,
+        "What is the overall ROE of my portfolio today?",
+    )
+    assert response.status_code == 200, response.text
+    body = response.json()
+    metrics = {item["name"]: item for item in body["metrics"]}
+    assert metrics["weighted_roe"]["value"] == "0.15"
+    assert metrics["weighted_roe"]["source"] == "calculation"
+    assert metrics["roe:AAPL"]["source"] == "database"
+    text = body["interpretation"].lower()
+    assert "0.15" in body["interpretation"]
+    assert "not a portfolio performance" in text
+    assert "not enough daily returns" not in text
+    assert body["interpretation_source"] == "template"
+
+
+def test_ask_missing_roe_does_not_blame_return_history(
+    client: TestClient,
+    sqlite_session: Session,
+    user: User,
+    apple: Security,
+) -> None:
+    response = _ask_about_apple(
+        client,
+        sqlite_session,
+        user,
+        apple,
+        "What is the overall ROE of my portfolio today?",
+    )
+    assert response.status_code == 200, response.text
+    body = response.json()
+    metrics = {item["name"]: item for item in body["metrics"]}
+    assert metrics["weighted_roe"]["value"] == "unavailable"
+    assert metrics["weighted_roe"]["availability"] == "unavailable"
+    assert metrics["roe:AAPL"]["value"] == "unavailable"
+    text = body["interpretation"].lower()
+    assert "aapl" in text
+    assert "not treated as zero" in text
+    assert "not enough daily returns" not in text
+    assert "0.15" not in body["interpretation"]
+
+
+def _ask_about_apple(client, sqlite_session, user, apple, question):
+    portfolio = create_portfolio(client, user.id)
+    portfolio_id = portfolio["id"]
+    for day, close in (
+        (datetime(2024, 1, 2, tzinfo=UTC), "100"),
+        (datetime(2024, 1, 3, tzinfo=UTC), "110"),
+    ):
+        price = Decimal(close)
+        sqlite_session.add(
+            Price(
+                security_id=apple.id,
+                timestamp=day,
+                open=price,
+                high=price,
+                low=price,
+                close=price,
+                adjusted_close=price,
+                volume=1,
+            )
+        )
+    sqlite_session.flush()
+    bought = client.post(
+        f"/portfolios/{portfolio_id}/transactions",
+        json={
+            "ticker": "AAPL",
+            "transaction_type": "BUY",
+            "quantity": "1",
+            "price": "100",
+            "timestamp": "2024-01-02T00:00:00Z",
+        },
+    )
+    assert bought.status_code == 201, bought.text
+    return client.post(
+        f"/portfolios/{portfolio_id}/ask",
+        json={"question": question},
+    )
+
+
+def test_ask_unrealized_profit_uses_average_cost(
+    client: TestClient,
+    sqlite_session: Session,
+    user: User,
+    apple: Security,
+) -> None:
+    response = _ask_about_apple(
+        client,
+        sqlite_session,
+        user,
+        apple,
+        "What is my unrealized P/L?",
+    )
+    assert response.status_code == 200, response.text
+    body = response.json()
+    metrics = {item["name"]: item for item in body["metrics"]}
+    assert metrics["unrealized_pl"]["value"] == "10"
+    assert metrics["unrealized_pl"]["source"] == "calculation"
+    assert metrics["average_cost:AAPL"]["value"] == "100"
+    text = body["interpretation"].lower()
+    assert "unrealized profit is 10." in text
+    assert "not enough daily returns" not in text
 
 
 def test_natural_screen_runs_the_structured_filter(

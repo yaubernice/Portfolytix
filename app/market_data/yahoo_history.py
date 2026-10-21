@@ -95,7 +95,7 @@ class YahooHistoryProvider(MarketDataProvider):
         response = self._client.get(
             YAHOO_CHART.format(symbol=symbol),
             params={"interval": "1d", "range": "2y"},
-            headers={"User-Agent": "FinSight/1.0"},
+            headers={"User-Agent": "Portfolytix/1.0"},
         )
         try:
             response.raise_for_status()

@@ -32,12 +32,14 @@ def test_transaction_create_requires_positive_money_fields() -> None:
     payload = {
         "ticker": "aapl",
         "transaction_type": "BUY",
-        "quantity": "10.50",
+        "quantity": "10",
         "price": "185.25",
     }
     created = TransactionCreate.model_validate(payload)
-    assert created.quantity == Decimal("10.50")
+    assert created.quantity == Decimal("10")
     assert created.price == Decimal("185.25")
+    with pytest.raises(ValidationError):
+        TransactionCreate.model_validate({**payload, "quantity": "10.50"})
 
     for field, value in (("quantity", "0"), ("price", "-1"), ("quantity", "-2")):
         with pytest.raises(ValidationError):

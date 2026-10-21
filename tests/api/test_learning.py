@@ -216,6 +216,25 @@ def test_explain_joins_the_formula_to_the_portfolio(
     assert "forecast" in body["watch"].lower()
 
 
+def test_a_ticker_is_not_explained_as_a_return(
+    client: TestClient, user: User, apple: Security
+) -> None:
+    portfolio_id = create_portfolio(client, user.id)["id"]
+    response = client.post(
+        "/learn/explain",
+        json={"text": "AAPL.", "portfolio_id": portfolio_id},
+    )
+    assert response.status_code == 200, response.text
+    body = response.json()
+    assert body["title"] == "AAPL"
+    assert body["source"] == "security"
+    assert "Apple Inc." in body["what"]
+    assert body["formula"] == ""
+    assert "time-weighted" not in body["what"].lower()
+    assert "time-weighted" not in body["explanation"].lower()
+    assert "no open position" in body["yours"].lower()
+
+
 def test_unknown_phrase_is_not_a_fixed_lesson(
     client: TestClient, user: User
 ) -> None:

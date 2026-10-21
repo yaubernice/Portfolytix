@@ -1,10 +1,21 @@
+from datetime import UTC, datetime
+from decimal import Decimal
+
 from sqlalchemy.orm import Session
 
 from app.core.config import settings
-from app.db.models import Security, User, Watchlist, WatchlistItem
+from app.db.models import (
+    Portfolio,
+    Security,
+    Transaction,
+    User,
+    Watchlist,
+    WatchlistItem,
+)
 from app.quotes.factory import build_news_source
 from app.quotes.simulator import SimulatorQuoteSource
 from app.quotes.symbols import (
+    load_book_symbols,
     load_quote_symbols,
     normalize_quote_symbols,
     subscription_delta,
@@ -59,6 +70,43 @@ def test_watchlist_membership_replaces_the_demo_list(
         )
     sqlite_session.flush()
     assert load_quote_symbols(sqlite_session) == ["AAPL"]
+
+
+def test_open_holding_is_quoted_without_a_watchlist(
+    sqlite_session: Session,
+) -> None:
+    user = User(email="holder@example.com", password_hash="x")
+    ibm = Security(
+        ticker="IBM",
+        name="IBM",
+        exchange="NYSE",
+        sector="Technology",
+        currency="USD",
+    )
+    sqlite_session.add_all([user, ibm])
+    sqlite_session.flush()
+    portfolio = Portfolio(user_id=user.id, name="Book")
+    sqlite_session.add(portfolio)
+    sqlite_session.flush()
+    sqlite_session.add(
+        Transaction(
+            portfolio_id=portfolio.id,
+            security_id=ibm.id,
+            transaction_type="BUY",
+            quantity=Decimal("2"),
+            price=Decimal("100"),
+            timestamp=datetime(2026, 10, 1, tzinfo=UTC),
+        )
+    )
+    sqlite_session.flush()
+    assert load_quote_symbols(sqlite_session) == ["IBM"]
+    assert load_book_symbols(sqlite_session, limit=25) == ["IBM"]
+
+
+def test_history_symbols_do_not_use_the_demo_list(
+    sqlite_session: Session,
+) -> None:
+    assert load_book_symbols(sqlite_session, limit=25) == []
 
 
 def test_empty_watchlists_use_the_configured_demo_list(

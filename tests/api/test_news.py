@@ -93,6 +93,8 @@ def test_portfolio_news_uses_cached_headlines_for_open_positions(
     assert body["provider"] == "yahoo"
     assert body["items"][0]["image_url"] == "https://example.test/photo.jpg"
     assert body["items"][0]["summary"] == "Stored summary"
+    assert body["items"][0]["brief"] == "Stored summary."
+    assert body["items"][0]["brief_source"] == "stored"
     assert body["unavailable"] == []
 
     hidden = client.get(
@@ -100,3 +102,42 @@ def test_portfolio_news_uses_cached_headlines_for_open_positions(
         headers={"Authorization": f"Bearer {create_access_token(other_user.id)}"},
     )
     assert hidden.status_code == 404
+
+
+def test_opened_story_is_summarized_from_the_article(
+    client: TestClient,
+    monkeypatch,
+) -> None:
+    article = (
+        "Apple reported higher iPhone sales in the latest quarter. "
+        "The company said demand was strongest in the United States. "
+        "Services revenue also rose."
+    )
+    monkeypatch.setattr(
+        "app.services.reference_service.fetch_article_text",
+        lambda _url: article,
+    )
+    response = client.post(
+        "/news/read",
+        json={
+            "url": "https://finance.yahoo.com/news/example.html",
+            "headline": "Apple updates guidance",
+        },
+    )
+    assert response.status_code == 200, response.text
+    body = response.json()
+    assert "iPhone" in body["about"]
+    assert body["about"] != "Apple updates guidance"
+    assert "Services revenue also rose." in body["points"]
+    assert "article" not in body
+
+
+def test_news_read_refuses_a_page_outside_yahoo(client: TestClient) -> None:
+    response = client.post(
+        "/news/read",
+        json={
+            "url": "https://example.test/story",
+            "headline": "Apple updates guidance",
+        },
+    )
+    assert response.status_code == 502

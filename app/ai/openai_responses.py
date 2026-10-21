@@ -8,18 +8,29 @@ from typing import Any
 
 import httpx
 
+from app.ai.evidence import finalize_interpretation
 from app.ai.openai_compatible import (
     _EXPLAIN_INSTRUCTION,
+    _IDEA_INSTRUCTION,
     _INTERPRET_INSTRUCTION,
+    _NEWS_INSTRUCTION,
     _SCREEN_INSTRUCTION,
+    _SCREEN_NOTE_INSTRUCTION,
+    _STORY_INSTRUCTION,
     _explain_fields,
     _load_json_object,
+    _news_briefs,
+    _story_fields,
+    _story_text,
 )
 from app.ai.parsing import screen_from_model_json
 from app.ai.structured import (
     explain_json_schema,
+    idea_json_schema,
     interpretation_json_schema,
+    news_json_schema,
     screen_json_schema,
+    story_json_schema,
 )
 from app.core.exceptions import AppError
 from app.schemas.screening import ScreenRequest
@@ -49,6 +60,30 @@ class OpenAIResponsesModel:
         self._timeout = timeout
         self._client = client
 
+    def comment_on_ideas(self, notes: list[dict]) -> str:
+        raw = self._complete(
+            _IDEA_INSTRUCTION,
+            json.dumps({"companies": notes[:6]}),
+            schema_name="idea_commentary",
+            schema=idea_json_schema(),
+        )
+        text = raw.get("commentary")
+        if not isinstance(text, str) or not text.strip():
+            raise AppError("Language model returned no idea note", status_code=502)
+        return " ".join(text.split())
+
+    def comment_on_screen(self, payload: dict) -> str:
+        raw = self._complete(
+            _SCREEN_NOTE_INSTRUCTION,
+            json.dumps(payload),
+            schema_name="screen_note",
+            schema=idea_json_schema(),
+        )
+        text = raw.get("commentary")
+        if not isinstance(text, str) or not text.strip():
+            raise AppError("Language model returned no screen note", status_code=502)
+        return " ".join(text.split())
+
     def parse_screen(self, query: str) -> ScreenRequest:
         return screen_from_model_json(
             self._complete(
@@ -58,6 +93,26 @@ class OpenAIResponsesModel:
                 schema=screen_json_schema(),
             )
         )
+
+    def summarize_story(self, headline: str, text: str) -> dict:
+        raw = self._complete(
+            _STORY_INSTRUCTION,
+            json.dumps({"headline": headline, "article": text[:2400]}),
+            schema_name="story_summary",
+            schema=story_json_schema(),
+        )
+        return _story_fields(raw, text)
+
+    def summarize_news(self, stories: list[dict]) -> list[str]:
+        if not stories:
+            return []
+        raw = self._complete(
+            _NEWS_INSTRUCTION,
+            json.dumps({"stories": [_story_text(story) for story in stories]}),
+            schema_name="news_briefs",
+            schema=news_json_schema(),
+        )
+        return _news_briefs(raw, stories)
 
     def explain_term(self, term: str, evidence: dict) -> dict:
         raw = self._complete(
@@ -75,7 +130,7 @@ class OpenAIResponsesModel:
             schema_name="assistant_interpretation",
             schema=interpretation_json_schema(),
         )
-        return _interpretation_text(raw)
+        return finalize_interpretation(_interpretation_text(raw), evidence)
 
     def stream_interpret(self, question: str, evidence: dict) -> Iterator[str]:
         payload = self._payload(
@@ -93,9 +148,7 @@ class OpenAIResponsesModel:
                     raise AppError("Language model request failed", status_code=502)
                 for event, data in _responses_sse(response.iter_lines()):
                     event_type = (
-                        data.get("type")
-                        if isinstance(data.get("type"), str)
-                        else event
+                        data.get("type") if isinstance(data.get("type"), str) else event
                     )
                     if event_type == "response.output_text.delta":
                         delta = data.get("delta")
@@ -129,7 +182,7 @@ class OpenAIResponsesModel:
                 "Language model returned an unreadable response",
                 status_code=502,
             ) from exc
-        yield text
+        yield finalize_interpretation(text, evidence)
 
     def _complete(
         self,

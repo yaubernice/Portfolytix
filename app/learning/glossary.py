@@ -1,4 +1,4 @@
-"""Educational copy for existing FinSight metrics. Not user data."""
+"""Educational copy for existing Portfolytix metrics. Not user data."""
 
 from __future__ import annotations
 
@@ -23,7 +23,7 @@ TERMS: tuple[GlossaryTerm, ...] = (
         meaning=(
             "Maximum drawdown is the largest drop from a high point to a "
             "later low point. Example: if a return index goes from 100 to 90, "
-            "the drawdown is -10%. FinSight measures that drop on the "
+            "the drawdown is -10%. Portfolytix measures that drop on the "
             "time-weighted wealth index, which starts at 1. A deposit is not "
             "treated as a gain."
         ),
@@ -69,7 +69,7 @@ TERMS: tuple[GlossaryTerm, ...] = (
         meaning=(
             "The Sharpe ratio is (average daily time-weighted return minus "
             "the daily risk-free rate) divided by the daily standard "
-            "deviation. FinSight turns the annual risk-free rate into a "
+            "deviation. Portfolytix turns the annual risk-free rate into a "
             "daily figure by dividing by 252. A higher number means more "
             "return per unit of variation in this sample."
         ),
@@ -150,7 +150,7 @@ TERMS: tuple[GlossaryTerm, ...] = (
         meaning=(
             "The price-to-earnings ratio is a company's price divided by its "
             "earnings. Example: a price of 20 and earnings of 1 is a P/E of "
-            "20. FinSight shows the stored snapshot, not a live recalculation."
+            "20. Portfolytix shows the stored snapshot, not a live recalculation."
         ),
         why_it_matters=(
             "It is one way to compare how much price sits on each unit of "
@@ -169,7 +169,7 @@ TERMS: tuple[GlossaryTerm, ...] = (
         summary="Stored return on equity: earnings compared with equity.",
         meaning=(
             "Return on equity is earnings compared with shareholders' equity. "
-            "Example: 0.15 in the database means 15%. FinSight shows the "
+            "Example: 0.15 in the database means 15%. Portfolytix shows the "
             "stored snapshot for a security."
         ),
         why_it_matters=(
@@ -186,7 +186,7 @@ TERMS: tuple[GlossaryTerm, ...] = (
 
 BY_SLUG = {term.slug: term for term in TERMS}
 
-# Standard formulas, written to match FinSight's calculations.
+# Standard formulas, written to match Portfolytix's calculations.
 FORMULAS: dict[str, str] = {
     "max-drawdown": "MDD = min(Wₜ / running peak of W − 1)",
     "volatility": "σ annual = sample stdev(daily returns) × √252",
@@ -268,6 +268,7 @@ ALIASES: dict[str, str] = {
     "unrealized p&l": "unrealized-pl",
     "unrealized pnl": "unrealized-pl",
     "unrealized profit": "unrealized-pl",
+    "day change": "day-pl",
     "day p/l": "day-pl",
     "day p&l": "day-pl",
     "daily p/l": "day-pl",
@@ -281,7 +282,7 @@ ALIASES: dict[str, str] = {
 
 
 def match_term(text: str) -> GlossaryTerm | None:
-    """Match a clicked label. Anything else is left for the model."""
+    """Match a clicked label. Unknown phrases are not another metric."""
     raw = " ".join(text.lower().split())
     slug = ALIASES.get(raw)
     if slug is not None:

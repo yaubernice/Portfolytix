@@ -27,7 +27,8 @@ from app.market_data.finnhub import (
     parse_finnhub_trades,
 )
 from app.quotes.factory import build_news_source, build_quote_source
-from app.quotes.store import QuoteStoreError, RedisQuoteStore
+from app.quotes.provider_marks import provider_quotes
+from app.quotes.store import QuoteStore, QuoteStoreError, RedisQuoteStore
 from app.quotes.symbols import load_quote_symbols, subscription_delta
 from app.repositories.security_repository import SecurityRepository
 
@@ -229,10 +230,50 @@ async def stream_finnhub(api_key: str, store: RedisQuoteStore) -> None:
             delay = settings.quote_reconnect_seconds
 
 
+def publish_provider_marks(store: QuoteStore) -> list[str]:
+    """Fetch Yahoo marks and write the same live-quote cache the API reads."""
+    symbols = load_quote_symbols()
+    provider_quotes(symbols, store, refresh=True)
+    return symbols
+
+
+def run_provider_mark_loop(store: RedisQuoteStore) -> None:
+    """Refresh Yahoo marks on the cache interval. This does not use the simulator."""
+    last_publish_at: datetime | None = None
+    while True:
+        started = time.monotonic()
+        polled_at = datetime.now(UTC)
+        symbols = publish_provider_marks(store)
+        if symbols:
+            last_publish_at = datetime.now(UTC)
+        metrics = get_metrics()
+        metrics.gauge("quotes.active_subscriptions", len(symbols))
+        publish_heartbeat(
+            store,
+            provider="yahoo",
+            symbols=symbols,
+            last_publish_at=last_publish_at,
+            last_poll_at=polled_at,
+        )
+        elapsed = time.monotonic() - started
+        time.sleep(max(0.0, settings.provider_mark_ttl_seconds - elapsed))
+
+
 def run() -> None:
     setup_logging(settings.log_level)
-    source = build_quote_source()
     store = build_worker_store()
+    if settings.provider_marks:
+        symbols = load_quote_symbols()
+        logger.info(
+            "quote_worker_started",
+            extra={"provider": "yahoo", "symbols": symbols},
+        )
+        news = build_news_source()
+        if news is not None:
+            refresh_news(news, store, symbols)
+        run_provider_mark_loop(store)
+        return
+    source = build_quote_source()
     symbols = load_quote_symbols()
     logger.info(
         "quote_worker_started",

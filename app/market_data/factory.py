@@ -7,6 +7,7 @@ from app.market_data.alpha_vantage import AlphaVantageProvider
 from app.market_data.errors import ProviderError
 from app.market_data.provider import MarketDataProvider
 from app.market_data.stooq import StooqProvider
+from app.market_data.yahoo_history import YahooHistoryProvider
 
 
 def build_provider(
@@ -20,7 +21,9 @@ def build_provider(
         return AlphaVantageProvider(settings.market_data_api_key, client=client)
     if chosen == "stooq":
         return StooqProvider(client=client)
+    if chosen == "yahoo":
+        return YahooHistoryProvider(client=client)
     raise ProviderError(
-        f"Unknown MARKET_DATA_PROVIDER={chosen!r}; use alpha_vantage or stooq",
+        f"Unknown MARKET_DATA_PROVIDER={chosen!r}; use yahoo, stooq, or alpha_vantage",
         retryable=False,
     )

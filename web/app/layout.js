@@ -3,8 +3,8 @@ import "./globals.css";
 
 export const metadata = {
   title: {
-    default: "FinSight",
-    template: "%s · FinSight",
+    default: "Portfolytix",
+    template: "%s · Portfolytix",
   },
   description: "Portfolio, market, and security intelligence workspace",
 };

@@ -47,6 +47,7 @@ class ExplainIn(BaseModel):
     text: str
     portfolio_id: UUID | None = None
     ticker: str | None = None
+    slug: str | None = None
 
 
 class ExplainOut(BaseModel):

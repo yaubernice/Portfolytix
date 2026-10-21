@@ -6,6 +6,7 @@ from app.core.exceptions import AppError, AuthenticationError
 from app.core.metrics import get_metrics
 from app.core.security import decode_access_token
 from app.db.models import User
+from app.quotes.provider_marks import provider_quotes
 from app.quotes.store import QuoteStore
 from app.quotes.symbols import normalize_quote_symbols
 from app.schemas.market import QuotesResponse
@@ -24,7 +25,12 @@ def list_quotes(
     except ValueError as exc:
         raise AppError(str(exc), status_code=422) from exc
     symbols = parsed or None
-    quotes = store.snapshot(symbols)
+    quotes = list(store.snapshot(symbols))
+    if settings.provider_marks and parsed:
+        fetched = provider_quotes(parsed, store)
+        by_ticker = {quote.ticker: quote for quote in quotes}
+        by_ticker.update(fetched)
+        quotes = [by_ticker[ticker] for ticker in parsed if ticker in by_ticker]
     metrics = get_metrics()
     metrics.gauge("market.quote_count", len(quotes))
     metrics.gauge(

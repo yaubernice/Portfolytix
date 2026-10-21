@@ -7,7 +7,7 @@ from decimal import Decimal
 
 @dataclass(frozen=True, slots=True)
 class RawBar: #not yet passed validation rules
-    """Vendor-normalized OHLCV before FinSight validation."""
+    """Vendor-normalized OHLCV before Portfolytix validation."""
 
     ticker: str
     day: date

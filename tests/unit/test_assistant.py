@@ -7,7 +7,7 @@ import httpx
 import pytest
 
 from app.ai.evidence import build_evidence, render_interpretation
-from app.ai.local import LocalAssistant
+from app.ai.local import LocalAssistant, stored_headline_line
 from app.ai.openai_compatible import OpenAICompatibleModel
 from app.ai.openai_responses import OpenAIResponsesModel
 from app.ai.parsing import parse_screen_text, screen_from_model_json
@@ -19,7 +19,7 @@ from app.schemas.analytics import (
     AnalyticsOut,
     SeriesPoint,
 )
-from app.schemas.screening import ScreenSort, SortDirection
+from app.schemas.screening import ScreenRequest, ScreenSort, SortDirection
 from app.services.assistant_service import AssistantService, natural_screen
 
 
@@ -35,9 +35,7 @@ def test_rules_parse_the_phase12_screen_example() -> None:
 
 
 def test_rules_parse_dividend_yield_and_profit_margin() -> None:
-    parsed = parse_screen_text(
-        "dividend yield above 2% and profit margin above 20%"
-    )
+    parsed = parse_screen_text("dividend yield above 2% and profit margin above 20%")
     assert parsed.dividend_yield_min == Decimal("0.02")
     assert parsed.profit_margin_min == Decimal("0.20")
 
@@ -55,6 +53,34 @@ def test_rules_reject_text_that_is_not_a_screen() -> None:
     with pytest.raises(AppError) as exc:
         parse_screen_text("OR 1=1; DROP TABLE prices")
     assert exc.value.status_code == 422
+
+
+def test_rules_read_a_technology_typo_as_the_sector() -> None:
+    parsed = parse_screen_text("tehcnoogy companies")
+    assert parsed.sector == "technology"
+    assert parsed.asset_type is None
+    assert parsed.search is None
+
+
+def test_rules_read_etf_as_an_asset_type() -> None:
+    parsed = parse_screen_text("ETF companies")
+    assert parsed.asset_type == "etf"
+    assert parsed.sector is None
+    assert parsed.search is None
+
+
+def test_rules_read_chinese_companies_as_a_name_search() -> None:
+    parsed = parse_screen_text("chinese companies")
+    assert parsed.search == "china"
+    assert parsed.sector is None
+    assert parse_screen_text("hong kong etf").search == "hong kong"
+
+
+def test_rules_read_a_ticker_and_a_product_name() -> None:
+    assert parse_screen_text("VOO").search == "voo"
+    named = parse_screen_text("hang seng")
+    assert named.search == "hang seng"
+    assert named.asset_type is None
 
 
 def test_model_json_with_sql_is_rejected() -> None:
@@ -265,9 +291,9 @@ def test_openai_responses_stream_rejects_incomplete_or_invalid_output() -> None:
             200,
             headers={"content-type": "text/event-stream"},
             text=(
-                'event: response.output_text.delta\n'
+                "event: response.output_text.delta\n"
                 'data: {"delta":"{\\"unknown\\":true}"}\n\n'
-                'event: response.completed\n'
+                "event: response.completed\n"
                 'data: {"response":{"status":"completed"}}\n\n'
             ),
         )
@@ -307,8 +333,8 @@ def test_local_assistant_changes_the_answer_when_the_question_matches() -> None:
     evidence = build_evidence(_analytics([None, Decimal("0.1")]))
     largest = LocalAssistant().interpret("What is my largest position?", evidence)
     performance = LocalAssistant().interpret("How did the portfolio perform?", evidence)
-    assert largest == "The largest current weight is AAPL at 1."
-    assert performance == "Full-sample total return is 0.1."
+    assert largest.startswith("The largest current weight is AAPL at 1.")
+    assert performance.startswith("Full-sample total return is 0.1.")
     assert largest != performance
 
 
@@ -319,7 +345,8 @@ def test_local_assistant_remains_evidence_only_for_unknown_question() -> None:
         evidence,
     )
     assert "tomorrow" not in text.lower()
-    assert "not enough daily returns" in text.lower()
+    assert "no forecast is given" in text.lower()
+    assert "not enough daily returns" not in text.lower()
 
 
 def test_remote_model_failure_falls_back_to_evidence_template(
@@ -346,7 +373,8 @@ def test_remote_model_failure_falls_back_to_evidence_template(
         "Predict tomorrow",
     )
     assert answer.interpretation_source == "template"
-    assert "not enough daily returns" in answer.interpretation.lower()
+    assert "no forecast is given" in answer.interpretation.lower()
+    assert "not enough daily returns" not in answer.interpretation.lower()
 
 
 def test_remote_screen_failure_falls_back_to_rules(
@@ -379,6 +407,79 @@ def test_remote_screen_failure_falls_back_to_rules(
     assert request.sector == "technology"
     assert request.limit == 10
     assert request.offset == 2
+
+
+def test_etf_sentence_does_not_let_the_model_choose_a_sector() -> None:
+    class InventingModel:
+        screen_parser = "llm"
+
+        def parse_screen(self, _query: str):
+            raise AssertionError("rules already understand an ETF request")
+
+    class Screening:
+        def screen(self, request):
+            return request
+
+    parser, request = natural_screen(
+        "ETF companies",
+        limit=20,
+        offset=0,
+        sort_by=ScreenSort.TICKER,
+        sort_direction=SortDirection.ASC,
+        screening=Screening(),
+        model=InventingModel(),
+    )
+    assert parser == "rules"
+    assert request.asset_type == "etf"
+    assert request.sector is None
+
+
+def test_model_cannot_invent_filters_the_sentence_did_not_name() -> None:
+    class InventingModel:
+        screen_parser = "llm"
+
+        def parse_screen(self, _query: str):
+            return ScreenRequest(sector="technology", roe_min=Decimal("0.40"))
+
+    class Screening:
+        def screen(self, request):
+            return request
+
+    with pytest.raises(AppError) as exc:
+        natural_screen(
+            "please show me",
+            limit=20,
+            offset=0,
+            sort_by=ScreenSort.TICKER,
+            sort_direction=SortDirection.ASC,
+            screening=Screening(),
+            model=InventingModel(),
+        )
+    assert exc.value.status_code == 422
+
+
+def test_screen_note_drops_a_ticker_the_results_omit() -> None:
+    from types import SimpleNamespace
+
+    from app.services.assistant_service import screen_note
+
+    result = SimpleNamespace(
+        items=[SimpleNamespace(ticker="AAPL", name="Apple", asset_type="equity")],
+        applied=SimpleNamespace(sector="technology", asset_type=None, search=None),
+        total=1,
+    )
+
+    class Inventing:
+        interpretation_source = "llm"
+
+        def comment_on_screen(self, _payload: dict) -> str:
+            return "NVDA also belongs on this list."
+
+    note, source = screen_note("technology companies", result, Inventing())
+    assert note is not None
+    assert "NVDA" not in note
+    assert "AAPL" in note
+    assert source == "template"
 
 
 def _analytics(returns: list[Decimal | None]) -> AnalyticsOut:
@@ -426,3 +527,178 @@ def _analytics(returns: list[Decimal | None]) -> AnalyticsOut:
             disclaimer="Not investment advice",
         ),
     )
+
+
+def test_stored_headline_line_uses_only_the_stored_summary() -> None:
+    assert stored_headline_line("Apple updates guidance", "Stored summary") == (
+        "Stored summary."
+    )
+    assert (
+        stored_headline_line("Apple updates guidance", "")
+        == "No summary is stored for this headline."
+    )
+    assert (
+        stored_headline_line("Apple updates guidance", "Apple updates guidance")
+        == "No summary is stored for this headline."
+    )
+
+
+def test_news_summary_drops_a_number_the_headline_does_not_have() -> None:
+    def handler(_request: httpx.Request) -> httpx.Response:
+        return httpx.Response(
+            200,
+            json={
+                "choices": [
+                    {
+                        "message": {
+                            "content": json.dumps(
+                                {
+                                    "briefs": [
+                                        "Apple fell 10% after the note.",
+                                        "The headline says guidance changed.",
+                                    ]
+                                }
+                            )
+                        }
+                    }
+                ]
+            },
+        )
+
+    model = OpenAICompatibleModel(
+        api_key="test-key",
+        model="fake",
+        base_url="https://example.invalid/v1",
+        timeout=5,
+        client=httpx.Client(transport=httpx.MockTransport(handler)),
+    )
+    briefs = model.summarize_news(
+        [
+            {"headline": "Apple updates guidance", "summary": ""},
+            {"headline": "Apple updates guidance", "summary": "Guidance changed."},
+        ]
+    )
+    assert briefs[0] == "Apple updates guidance."
+    assert "10%" not in briefs[0]
+    assert briefs[1] == "The headline says guidance changed."
+
+
+def test_news_summary_drops_a_price_direction_the_headline_does_not_have() -> None:
+    def handler(_request: httpx.Request) -> httpx.Response:
+        return httpx.Response(
+            200,
+            json={
+                "choices": [
+                    {
+                        "message": {
+                            "content": json.dumps(
+                                {"briefs": ["Tesla's stock price recovered."]}
+                            )
+                        }
+                    }
+                ]
+            },
+        )
+
+    model = OpenAICompatibleModel(
+        api_key="test-key",
+        model="fake",
+        base_url="https://example.invalid/v1",
+        timeout=5,
+        client=httpx.Client(transport=httpx.MockTransport(handler)),
+    )
+    briefs = model.summarize_news(
+        [{"headline": "Tesla Comes Back To Earth", "summary": ""}]
+    )
+    assert briefs == ["Tesla Comes Back To Earth."]
+
+
+def test_news_summary_does_not_borrow_another_headline() -> None:
+    def handler(_request: httpx.Request) -> httpx.Response:
+        return httpx.Response(
+            200,
+            json={
+                "choices": [
+                    {
+                        "message": {
+                            "content": json.dumps(
+                                {
+                                    "briefs": [
+                                        (
+                                            "Apple climbed, but Apple also "
+                                            "gave money to Trump's ballroom."
+                                        ),
+                                        "Nvidia and Apple donated $25 million.",
+                                    ]
+                                }
+                            )
+                        }
+                    }
+                ]
+            },
+        )
+
+    model = OpenAICompatibleModel(
+        api_key="test-key",
+        model="fake",
+        base_url="https://example.invalid/v1",
+        timeout=5,
+        client=httpx.Client(transport=httpx.MockTransport(handler)),
+    )
+    briefs = model.summarize_news(
+        [
+            {"headline": "Apple Stocks Rise In Muse Test", "summary": ""},
+            {
+                "headline": "Nvidia and Apple Gave $25 Million to Trump Ballroom",
+                "summary": "",
+            },
+        ]
+    )
+    assert "Trump" not in briefs[0]
+    assert "ballroom" not in briefs[0].lower()
+    assert "$25" in briefs[1] or "25" in briefs[1]
+
+
+def test_news_summary_keeps_the_headline_when_the_meaning_drifts() -> None:
+    def handler(_request: httpx.Request) -> httpx.Response:
+        return httpx.Response(
+            200,
+            json={
+                "choices": [
+                    {
+                        "message": {
+                            "content": json.dumps(
+                                {
+                                    "briefs": [
+                                        "Tesla's stock went up a bit.",
+                                        (
+                                            "Apple and Alphabet are worried "
+                                            "about a political change."
+                                        ),
+                                    ]
+                                }
+                            )
+                        }
+                    }
+                ]
+            },
+        )
+
+    model = OpenAICompatibleModel(
+        api_key="test-key",
+        model="fake",
+        base_url="https://example.invalid/v1",
+        timeout=5,
+        client=httpx.Client(transport=httpx.MockTransport(handler)),
+    )
+    briefs = model.summarize_news(
+        [
+            {"headline": "Tesla Comes Back To Earth", "summary": ""},
+            {
+                "headline": "Apple and Alphabet Are Especially Scared of a Blue Wave",
+                "summary": "",
+            },
+        ]
+    )
+    assert briefs[0] == "Tesla Comes Back To Earth."
+    assert "political" not in briefs[1]

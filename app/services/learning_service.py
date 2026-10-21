@@ -2,12 +2,14 @@
 
 from __future__ import annotations
 
+import re
 from decimal import Decimal
 from uuid import UUID
 
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
+from app.ai.evidence import RECENT_WINDOW
 from app.ai.local import LocalAssistant
 from app.ai.provider import AssistantModel
 from app.core.exceptions import AppError, ConflictError, NotFoundError
@@ -103,14 +105,15 @@ class LearningService:
         *,
         portfolio_id: UUID | None,
         ticker: str | None,
+        slug: str | None = None,
     ) -> ExplainOut:
         cleaned = " ".join(text.split())
         if not cleaned or len(cleaned) > 80:
             raise AppError("Enter a word or short phrase to explain")
-        term = match_term(cleaned)
-        if term is not None:
-            page = self.page(term.slug, portfolio_id=portfolio_id, ticker=ticker)
-            return ExplainOut(
+        chosen = BY_SLUG.get(slug or "") or match_term(cleaned)
+        if chosen is not None:
+            page = self.page(chosen.slug, portfolio_id=portfolio_id, ticker=ticker)
+            base = ExplainOut(
                 title=page.title,
                 formula=page.formula,
                 what=page.what,
@@ -121,20 +124,145 @@ class LearningService:
                 source="glossary",
                 disclaimer=page.disclaimer,
             )
-        symbol = ticker.strip().upper() if ticker else None
-        evidence = self._model_evidence(portfolio_id, symbol)
-        drafted, source = self._draft(cleaned, evidence)
-        return ExplainOut(
+            return self._with_model(cleaned, base)
+        security = self._security_for_text(cleaned)
+        if security is not None:
+            return self._with_model(
+                security.ticker,
+                self._security_explanation(security, portfolio_id),
+            )
+        drafted = LocalAssistant().explain_term(cleaned, {"facts": [], "note": ""})
+        base = ExplainOut(
             title=cleaned,
-            formula=drafted["formula"],
+            formula="",
             what=drafted["what"],
             example=drafted["example"],
             yours=drafted["yours"],
             watch=drafted["watch"],
             explanation=_joined(drafted),
-            source=source,
+            source="template",
             disclaimer=DISCLAIMER,
         )
+        return self._with_model(cleaned, base)
+
+    def _with_model(self, term: str, base: ExplainOut) -> ExplainOut:
+        """Ask the configured model to word the explanation. Figures stay put."""
+        if getattr(self.model, "interpretation_source", "") != "llm":
+            return base
+        facts = [
+            {"label": label, "value": value}
+            for label, value in (
+                ("What it is", base.what),
+                ("Formula", base.formula),
+                ("Example", base.example),
+                ("Your portfolio", base.yours),
+                ("Keep in mind", base.watch),
+            )
+            if value
+        ]
+        try:
+            drafted = self.model.explain_term(
+                term,
+                {
+                    "facts": facts,
+                    "note": (
+                        "Rewrite in everyday words. "
+                        "Do not add a number these sentences do not contain."
+                    ),
+                },
+            )
+        except AppError:
+            return base
+        allowed = " ".join(item["value"] for item in facts)
+        what = str(drafted.get("what") or "").strip()
+        watch = str(drafted.get("watch") or "").strip()
+        if not what or not _same_numbers(what, allowed):
+            return base
+        if base.source == "security" and base.title.upper() not in what.upper():
+            return base
+        if not watch or not _same_numbers(watch, allowed):
+            watch = base.watch
+        parts = {
+            "what": what,
+            "example": base.example,
+            "yours": base.yours,
+            "watch": watch,
+        }
+        return base.model_copy(
+            update={
+                "what": what,
+                "watch": watch,
+                "source": "model",
+                "explanation": _joined(parts),
+            }
+        )
+
+    def _security_for_text(self, text: str) -> Security | None:
+        symbol = text.strip().strip(".,:;!?\"'()[]")
+        if not symbol or any(ch.isspace() for ch in symbol):
+            return None
+        if len(symbol) > 16 or not any(ch.isalpha() for ch in symbol):
+            return None
+        if not all(ch.isalnum() or ch in ".-^" for ch in symbol):
+            return None
+        try:
+            return self.securities.get_by_ticker(symbol)
+        except ConflictError:
+            return None
+
+    def _security_explanation(
+        self, security: Security, portfolio_id: UUID | None
+    ) -> ExplainOut:
+        name = security.name or security.ticker
+        sector = f" Sector: {security.sector}." if security.sector else ""
+        drafted = {
+            "what": f"{security.ticker} is the ticker for {name}.{sector}",
+            "formula": "",
+            "example": (
+                "A ticker is the short code for that company. "
+                "The code itself is not a return."
+            ),
+            "yours": self._holding_line(security.ticker, portfolio_id),
+            "watch": (
+                "This names the company. It is not a portfolio return, "
+                "and it is not a forecast."
+            ),
+        }
+        return ExplainOut(
+            title=security.ticker,
+            formula="",
+            what=drafted["what"],
+            example=drafted["example"],
+            yours=drafted["yours"],
+            watch=drafted["watch"],
+            explanation=_joined(drafted),
+            source="security",
+            disclaimer=(
+                "This explains a company code. It is not investment advice "
+                "and does not predict future performance."
+            ),
+        )
+
+    def _holding_line(self, symbol: str, portfolio_id: UUID | None) -> str:
+        if portfolio_id is None:
+            return "Choose a portfolio to see whether you hold this company."
+        positions = self.positions.list_positions(portfolio_id)
+        held = next(
+            (
+                row
+                for row in positions.positions
+                if row.ticker.upper() == symbol.upper() and row.quantity > 0
+            ),
+            None,
+        )
+        if held is None:
+            return f"This portfolio has no open position in {symbol}."
+        line = f"You hold {_shares(held.quantity)} of {symbol}."
+        if held.market_value is not None:
+            line += f" Market value {_money(Decimal(held.market_value))}."
+        if held.day_pl is not None:
+            line += f" Day change {_money(Decimal(held.day_pl))}."
+        return line
 
     def _draft(self, text: str, evidence: dict) -> tuple[dict, str]:
         try:
@@ -426,6 +554,17 @@ def _peak_and_trough(
     return series[peak_at_trough], series[trough_index]
 
 
+def _short_sample(analytics: AnalyticsOut) -> str:
+    count = analytics.observation_count
+    if count <= 0 or count >= RECENT_WINDOW:
+        return ""
+    noun = "return" if count == 1 else "returns"
+    return (
+        f"This sample has {count} daily {noun}. A short sample can make "
+        "an annualized number very large. It is not a long-run risk figure. "
+    )
+
+
 def _volatility(analytics: AnalyticsOut) -> LearnObservation:
     value = analytics.volatility
     if value is None:
@@ -440,8 +579,8 @@ def _volatility(analytics: AnalyticsOut) -> LearnObservation:
             f"Annualized volatility for this sample is {_percent(value)}. "
             "It is the sample standard deviation of daily time-weighted "
             f"returns, multiplied by the square root of {days}. A higher "
-            "number means the daily returns were more spread out. It is "
-            "not a forecast."
+            "number means the daily returns were more spread out. "
+            f"{_short_sample(analytics)}It is not a forecast."
         ),
         facts=[
             LearnFact(label="Annualized volatility", value=_percent(value)),
@@ -476,7 +615,8 @@ def _sharpe(analytics: AnalyticsOut) -> LearnObservation:
             "average daily time-weighted return with a "
             f"{_percent(rate)} annual risk-free assumption, then divides by "
             "daily volatility. A higher number means more return per unit of "
-            "variation in this sample. It is not a buy or sell signal."
+            "variation in this sample. "
+            f"{_short_sample(analytics)}It is not a buy or sell signal."
         ),
         facts=[
             LearnFact(label="Sharpe ratio", value=shown),
@@ -666,6 +806,14 @@ def _card(slug: str, observation: LearnObservation) -> dict[str, str]:
     }
 
 
+def _same_numbers(text: str, allowed: str) -> bool:
+    known = set(re.findall(r"\d+(?:\.\d+)?", allowed.replace(",", "")))
+    for token in re.findall(r"\d+(?:\.\d+)?", text.replace(",", "")):
+        if token not in known:
+            return False
+    return True
+
+
 def _joined(parts: dict[str, str]) -> str:
     return " ".join(
         part
@@ -731,6 +879,14 @@ def _missing(reason: str) -> LearnObservation:
 def _percent(value: Decimal) -> str:
     points = (value * Decimal(100)).quantize(Decimal("0.1"))
     return f"{points}%"
+
+
+def _shares(value: Decimal) -> str:
+    amount = Decimal(value)
+    if amount == amount.to_integral_value():
+        count = int(amount)
+        return "1 share" if count == 1 else f"{count} shares"
+    return f"{_number(amount)} shares"
 
 
 def _number(value: Decimal) -> str:

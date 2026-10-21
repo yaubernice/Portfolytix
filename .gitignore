@@ -2,6 +2,8 @@
 .env
 .env.local
 .env.*.local
+.env.deploy
+.env.production
 *.pem
 
 # Python
@@ -29,3 +31,5 @@ web/.next/
 .vscode/
 *.swp
 .DS_Store
+
+web/test-results/

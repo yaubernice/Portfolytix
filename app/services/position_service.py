@@ -7,9 +7,11 @@ from uuid import UUID
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
+from app.core.config import settings
 from app.core.exceptions import NotFoundError
 from app.db.models import Price
 from app.quotes.models import LiveQuote
+from app.quotes.provider_marks import provider_quotes
 from app.quotes.store import QuoteStore
 from app.repositories.portfolio_repository import PortfolioRepository
 from app.repositories.transaction_repository import TransactionRepository
@@ -52,6 +54,12 @@ class PositionService:
         ]
         costs = average_cost_positions(fills)
         live = {quote.ticker: quote for quote in self.quotes.snapshot()}
+        if settings.provider_marks:
+            fetched = provider_quotes(
+                [row.ticker for row in costs],
+                self.quotes,
+            )
+            live = {**live, **fetched}
         positions = [self._position(row, live.get(row.ticker)) for row in costs]
         total = sum(
             (row.market_value for row in positions if row.market_value is not None),

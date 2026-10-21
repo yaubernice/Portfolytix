@@ -8,7 +8,7 @@ export default function LearnTerm({ slug, ticker, children }) {
 
   function open() {
     window.dispatchEvent(new CustomEvent("finsight:explain", {
-      detail: { text: label, ticker: ticker || "" },
+      detail: { text: label, ticker: ticker || "", slug: slug || "" },
     }));
   }
 

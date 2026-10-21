@@ -27,6 +27,12 @@ def _security(session: Session, ticker: str, sector: str) -> Security:
 
 
 def _fundamental(session: Session, security: Security, roe: str) -> None:
+    session_cap(session, security, roe, "1000000000")
+
+
+def session_cap(
+    session: Session, security: Security, roe: str, market_cap: str
+) -> None:
     session.add(
         Fundamental(
             security_id=security.id,
@@ -34,7 +40,7 @@ def _fundamental(session: Session, security: Security, roe: str) -> None:
             roe=Decimal(roe),
             pe_ratio=Decimal("20"),
             revenue_growth=Decimal("0.10"),
-            market_cap=Decimal("1000000000"),
+            market_cap=Decimal(market_cap),
         )
     )
 
@@ -73,6 +79,8 @@ def test_recommendations_prefer_a_sector_the_portfolio_does_not_hold(
     assert "AAPL" not in tickers
     reason = response.json()["items"][0]["reason"]
     assert "No open position is in Communication Services." in reason
+    assert "smaller company" in reason
+    assert "not a promise" in reason
     assert "not investment advice" in response.json()["disclaimer"]
 
     hidden = client.get(
@@ -80,6 +88,40 @@ def test_recommendations_prefer_a_sector_the_portfolio_does_not_hold(
         headers={"Authorization": f"Bearer {create_access_token(other_user.id)}"},
     )
     assert hidden.status_code == 404
+
+
+def test_recommendations_keep_a_smaller_company_beside_a_giant(
+    client: TestClient,
+    sqlite_session: Session,
+    user: User,
+    apple: Security,
+) -> None:
+    giant = _security(sqlite_session, "MSFT", "Technology")
+    small = _security(sqlite_session, "AUBN", "Financial Services")
+    _fundamental(sqlite_session, apple, "0.20")
+    session_cap(sqlite_session, giant, "0.50", "3000000000000")
+    session_cap(sqlite_session, small, "0.08", "90000000")
+    sqlite_session.commit()
+    portfolio = create_portfolio(client, user.id)
+    bought = client.post(
+        f"/portfolios/{portfolio['id']}/transactions",
+        json={
+            "ticker": "AAPL",
+            "transaction_type": "BUY",
+            "quantity": "1",
+            "price": "100",
+            "timestamp": "2024-01-02T00:00:00Z",
+        },
+    )
+    assert bought.status_code == 201, bought.text
+    response = client.get(f"/portfolios/{portfolio['id']}/recommendations")
+    assert response.status_code == 200, response.text
+    items = {row["ticker"]: row for row in response.json()["items"]}
+    assert "AUBN" in items
+    assert "MSFT" in items
+    assert "smaller company" in items["AUBN"]["reason"]
+    assert "large company" in items["MSFT"]["reason"]
+    assert "No open position is in Financial Services." in items["AUBN"]["reason"]
 
 
 def test_attention_lists_a_down_day_and_flags_stay_with_the_owner(

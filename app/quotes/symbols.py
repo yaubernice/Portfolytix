@@ -14,11 +14,19 @@ from sqlalchemy.orm import Session
 from app.core.config import settings
 from app.db.session import SessionLocal
 from app.quotes.factory import quote_symbols
+from app.repositories.transaction_repository import TransactionRepository
 from app.repositories.watchlist_repository import WatchlistRepository
 
 logger = logging.getLogger(__name__)
 _fallback_logged = False
 _SYMBOL = re.compile(r"^[A-Z0-9][A-Z0-9.\-]{0,15}$")
+
+
+def load_book_symbols(session: Session, *, limit: int) -> list[str]:
+    """Open holdings, then watchlist names. No demo-list fallback."""
+    held = TransactionRepository(session).distinct_open_tickers(limit=limit)
+    watched = WatchlistRepository(session).distinct_active_tickers(limit=limit)
+    return _merge_symbols(held, watched, limit)
 
 
 def load_quote_symbols(
@@ -27,9 +35,7 @@ def load_quote_symbols(
     owns_session = session is None
     db = session or SessionLocal()
     try:
-        tickers = WatchlistRepository(db).distinct_active_tickers(
-            limit=settings.quote_max_symbols #limit the number of symbols to load
-        )
+        tickers = load_book_symbols(db, limit=settings.quote_max_symbols)
     except Exception:
         if not owns_session:
             raise
@@ -43,9 +49,26 @@ def load_quote_symbols(
         _fallback_logged = False
         return tickers
     if not _fallback_logged:
-        logger.info("quote_symbols_fallback", extra={"reason": "no_watchlist_items"})
+        logger.info(
+            "quote_symbols_fallback",
+            extra={"reason": "no_holdings_or_watchlists"},
+        )
         _fallback_logged = True
     return quote_symbols()
+
+
+def _merge_symbols(held: list[str], watched: list[str], limit: int) -> list[str]:
+    merged: list[str] = []
+    seen: set[str] = set()
+    for ticker in [*held, *watched]:
+        symbol = ticker.strip().upper()
+        if not symbol or symbol in seen:
+            continue
+        seen.add(symbol)
+        merged.append(symbol)
+        if len(merged) >= limit:
+            break
+    return merged
 
 
 def subscription_delta(

@@ -3,10 +3,10 @@
 import Link from "next/link";
 import { useCallback, useEffect, useState } from "react";
 import { api } from "../lib/api";
-import { EmptyState, ErrorState, money, Pagination, percent, Skeleton, StatusBadge, Toast } from "./UI";
+import { CompanyLogo, EmptyState, ErrorState, money, Pagination, percent, Skeleton, StatusBadge, TickerIdentity, Toast } from "./UI";
 import { useQuotes } from "./useQuotes";
 
-const PAGE_SIZE = 12;
+const PAGE_SIZE = 100;
 
 export default function Watchlist() {
   const { quotes, status } = useQuotes();
@@ -125,7 +125,7 @@ export default function Watchlist() {
         <div className="panel-header">
           <div>
             <h2>Your watchlists</h2>
-            <p className="muted">Organize securities and follow live worker quotes.</p>
+            <p className="muted">Organize symbols. Prices are the latest provider quotes, not a live tape.</p>
           </div>
           <StatusBadge value={status} />
         </div>
@@ -167,7 +167,7 @@ export default function Watchlist() {
               <div className="search-picker-results" aria-live="polite">
                 {results.map((security) => (
                   <button type="button" key={security.id} onClick={() => addItem(security)}>
-                    <strong>{security.ticker}</strong><span>{security.name}</span><small>{security.exchange}</small>
+                    <CompanyLogo ticker={security.ticker} size={24} /><strong>{security.ticker}</strong><span>{security.name}</span><small>{security.exchange}</small>
                   </button>
                 ))}
                 {results.length === 0 ? <p className="search-empty">No matches</p> : null}
@@ -186,7 +186,7 @@ export default function Watchlist() {
                       const tone = change > 0 ? "up" : change < 0 ? "down" : "";
                       return (
                         <tr key={item.id}>
-                          <td><Link className="ticker-link" href={`/securities/${item.ticker}`}>{item.ticker}</Link><br /><span className="muted">{item.name}</span></td>
+                          <td><Link className="ticker-link" href={`/securities/${item.ticker}`}><TickerIdentity ticker={item.ticker} name={item.name} /></Link></td>
                           <td>{item.exchange}</td>
                           <td className={`numeric ${tone}`}>{money(quote?.price)}</td>
                           <td className={`numeric ${tone}`}>{quote ? `${money(quote.change)} (${percent(quote.change_percent)})` : "—"}</td>
@@ -198,7 +198,7 @@ export default function Watchlist() {
                   </tbody>
                 </table>
               </div>
-              <Pagination offset={detail.items_offset} limit={detail.items_limit} total={detail.items_total} onChange={setOffset} />
+              {detail.items_total > detail.items_limit ? <Pagination offset={detail.items_offset} limit={detail.items_limit} total={detail.items_total} onChange={setOffset} /> : null}
             </>
           )}
         </section>

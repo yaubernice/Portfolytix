@@ -2,9 +2,19 @@
 
 import { useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
+import GeneratingStatus, { EXPLAIN_PHASES } from "./GeneratingStatus";
+import { roundFigures } from "../lib/figures";
 import { api } from "../lib/api";
 
 const PORTFOLIO_KEY = "finsight_portfolio";
+
+function explainOrigin(source) {
+  if (source === "model") return "Written by the configured model. The figures below stay the ones calculated for this portfolio.";
+  if (source === "glossary") return "From the glossary. The figures are calculated for this portfolio.";
+  if (source === "security") return "From the stored company record.";
+  if (source === "template") return "Restated without a language model.";
+  return "";
+}
 
 export function ExplainPoints({ page }) {
   const rows = [
@@ -19,7 +29,7 @@ export function ExplainPoints({ page }) {
       {rows.map(([label, value]) => (
         <div key={label}>
           <dt>{label}</dt>
-          <dd className={label === "Formula" ? "explain-formula" : undefined}>{value}</dd>
+          <dd className={label === "Formula" ? "explain-formula" : undefined}>{roundFigures(value)}</dd>
         </div>
       ))}
     </dl>
@@ -43,7 +53,11 @@ export default function ExplainLayer() {
       if (!text) return;
       setChip(null);
       setPortfoliosReady(false);
-      setRequest({ text, ticker: event.detail?.ticker || "" });
+      setRequest({
+        text,
+        ticker: event.detail?.ticker || "",
+        slug: event.detail?.slug || "",
+      });
       window.getSelection()?.removeAllRanges();
     }
     function onSelect(event) {
@@ -117,6 +131,7 @@ export default function ExplainLayer() {
         text: request.text,
         portfolio_id: portfolioId || null,
         ticker: request.ticker || null,
+        slug: request.slug || null,
       }),
     })
       .then((body) => {
@@ -188,8 +203,9 @@ export default function ExplainLayer() {
               </select>
             </label>
           ) : null}
-          {loading ? <p className="muted">Writing the explanation…</p> : null}
+          {loading ? <GeneratingStatus phases={EXPLAIN_PHASES} /> : null}
           {error ? <p className="error">{error}</p> : null}
+          {page?.source ? <p className="answer-origin">{explainOrigin(page.source)}</p> : null}
           {page ? <ExplainPoints page={page} /> : null}
           {page ? <p className="muted explain-note">{page.disclaimer}</p> : null}
         </div>

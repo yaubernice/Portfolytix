@@ -18,6 +18,18 @@ class AssistantModel(Protocol):
     def explain_term(self, term: str, evidence: dict) -> dict:
         """Explain any phrase. Return explanation and formula strings."""
 
+    def summarize_news(self, stories: list[dict]) -> list[str]:
+        """One short line per story, using only that story's own text."""
+
+    def summarize_story(self, headline: str, text: str) -> dict:
+        """Say what one article is about. Use only that article's text."""
+
+    def comment_on_ideas(self, notes: list[dict]) -> str:
+        """One short note from stored idea points. No new figures."""
+
+    def comment_on_screen(self, payload: dict) -> str:
+        """One short note from a finished screen. No new companies."""
+
     def interpret(self, question: str, evidence: dict) -> str:
         """Phrase an answer from evidence the application already computed."""
 

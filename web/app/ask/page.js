@@ -1,14 +1,17 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
+import { AnswerText, EvidenceList, answerOrigin } from "../../components/EvidenceList";
+import GeneratingStatus, { ASK_PHASES } from "../../components/GeneratingStatus";
 import Nav from "../../components/Nav";
-import { EmptyState, ErrorState, Skeleton, StatusBadge } from "../../components/UI";
+import { ErrorState, StatusBadge } from "../../components/UI";
 import { api, authenticatedEventStream } from "../../lib/api";
 
 export default function AskPage() {
   const [portfolios, setPortfolios] = useState([]);
   const [portfolioId, setPortfolioId] = useState("");
   const [text, setText] = useState("");
+  const [asked, setAsked] = useState("");
   const [evidence, setEvidence] = useState(null);
   const [error, setError] = useState("");
   const [state, setState] = useState("idle");
@@ -27,6 +30,7 @@ export default function AskPage() {
     controllerRef.current?.abort();
     const controller = new AbortController();
     controllerRef.current = controller;
+    setAsked(String(form.get("question") || ""));
     setError("");
     setText("");
     setEvidence(null);
@@ -42,7 +46,14 @@ export default function AskPage() {
           setState("streaming");
           setText((current) => current + (message.data.delta || ""));
         }
-        if (message.event === "done") setState("complete");
+        if (message.event === "done") {
+          setState("complete");
+          if (message.data.interpretation_source) {
+            setEvidence((current) => (
+              current ? { ...current, interpretation_source: message.data.interpretation_source } : current
+            ));
+          }
+        }
         if (message.event === "error") throw new Error(message.data.message || "Assistant provider failed");
       }
     } catch (err) {
@@ -66,38 +77,29 @@ export default function AskPage() {
           <section className="panel">
             <form onSubmit={submit}>
               <label className="field">Portfolio<select value={portfolioId} onChange={(event) => setPortfolioId(event.target.value)}>{portfolios.map((row) => <option key={row.id} value={row.id}>{row.name}</option>)}</select></label>
-              <label className="field">Question<textarea name="question" rows={4} maxLength={500} required placeholder="What drove my portfolio today?" /></label>
+              <label className="field">Question<textarea name="question" rows={4} maxLength={500} required placeholder="What is the overall ROE of my portfolio?" /></label>
               <div className="row">
-                <button className="primary" type="submit" disabled={!portfolioId || ["thinking", "streaming"].includes(state)}>Ask FinSight</button>
+                <button className="primary" type="submit" disabled={!portfolioId || ["thinking", "streaming"].includes(state)}>Ask Portfolytix</button>
                 {["thinking", "streaming"].includes(state) ? <button type="button" onClick={() => controllerRef.current?.abort()}>Cancel</button> : null}
               </div>
             </form>
+            <p className="muted compact-note">Figures are calculated for this portfolio before any wording is written. Ask for a chart and the picture is drawn from those figures. A future line is not drawn. The label under the answer says whether a configured model wrote the words.</p>
             <ErrorState message={error} />
           </section>
-          <aside className="panel">
-            <h2>How answers work</h2>
-            <p className="muted">The model receives your question and calculated portfolio evidence. It cannot query the database. The badge says llm when a model wrote the answer. With no model configured, a local template restates that evidence.</p>
-          </aside>
-        </div>
-        <section className="panel" aria-live="polite" aria-busy={["thinking", "streaming"].includes(state)}>
-          <div className="panel-header"><h2>Answer</h2>{evidence?.interpretation_source ? <span className="status">Source: {evidence.interpretation_source}</span> : null}</div>
-          {state === "thinking" ? <Skeleton lines={3} label="FinSight is thinking" /> : null}
-          {state === "idle" ? <EmptyState title="Ask a portfolio question">The answer and its supporting evidence will appear here.</EmptyState> : null}
-          {state === "cancelled" && !text ? <EmptyState title="Response cancelled">Your question was not completed.</EmptyState> : null}
-          {text ? <div className="assistant-output"><p>{text}</p></div> : null}
-          {evidence?.disclaimer ? <p className="muted">{evidence.disclaimer}</p> : null}
-        </section>
-        {evidence ? (
-          <section className="panel">
-            <div className="panel-header"><h2>Evidence</h2><span className="muted">Database and calculated sources</span></div>
-            <div className="evidence-grid">
-              {[...(evidence.facts || []), ...(evidence.metrics || [])].map((item) => (
-                <article className="evidence-item" key={`${item.kind}-${item.name}`}>
-                  <p className="eyebrow">{item.kind}</p><strong>{item.name}</strong><p>{item.value}</p><small className="muted">Source: {item.source}</small>
-                </article>
-              ))}
-            </div>
+          <section className="panel" aria-live="polite" aria-busy={["thinking", "streaming"].includes(state)}>
+            <div className="panel-header"><h2>Answer</h2>{evidence?.interpretation_source ? <p className="answer-origin">{answerOrigin(evidence.interpretation_source)}</p> : null}</div>
+            {state === "thinking" ? <GeneratingStatus phases={ASK_PHASES} /> : null}
+            {state === "idle" ? <p className="muted">The answer will appear here.</p> : null}
+            {state === "cancelled" && !text ? <p className="muted">Response cancelled. Ask again when you want to continue.</p> : null}
+            {text ? <AnswerText text={text} evidence={evidence} question={asked} streaming={state === "streaming"} /> : null}
+            {evidence?.disclaimer ? <p className="muted">{evidence.disclaimer}</p> : null}
           </section>
+        </div>
+        {evidence ? (
+          <details className="panel evidence-panel" open>
+            <summary>Evidence behind this answer</summary>
+            <EvidenceList facts={evidence.facts} metrics={evidence.metrics} />
+          </details>
         ) : null}
       </main>
     </>

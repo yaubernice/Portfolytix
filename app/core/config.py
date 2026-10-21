@@ -14,7 +14,7 @@ class Settings(BaseSettings):
         extra="ignore",
     )
 
-    app_name: str = "FinSight"
+    app_name: str = "Portfolytix"
     environment: str = "local"
     log_level: str = "INFO"
     database_url: str = (
@@ -32,6 +32,9 @@ class Settings(BaseSettings):
     # 22:00 UTC is after the US cash close in both EST and EDT.
     market_data_cron: str = "0 22 * * *"
     market_data_lookback_days: int = 7
+    # Portfolio analytics loads a year of daily closes when a holding has
+    # only a short stored sample. Tests turn this off so they stay offline.
+    portfolio_history_backfill: bool = True
     # One run cannot walk the whole universe or a multi-decade window.
     market_data_max_securities: int = 25
     market_data_max_window_days: int = 1825
@@ -71,9 +74,14 @@ class Settings(BaseSettings):
     quote_symbols: str = "AAPL,MSFT,NVDA,AMZN,GOOGL,META,TSLA"
     quote_poll_seconds: float = 2.0
     quote_ttl_seconds: int = 30
+    # Yahoo marks share the live-quote keys. 45s is long enough that a
+    # dashboard refresh does not call Yahoo again, and short enough that
+    # the next poll still replaces the print.
+    provider_mark_ttl_seconds: int = 45
+    provider_quote_workers: int = 4
     # A provider tick older than this can no longer be presented as real-time.
     quote_stale_after_seconds: float = 15.0
-    # Delayed quotes go stale when FinSight has not refreshed them. The
+    # Delayed quotes go stale when Portfolytix has not refreshed them. The
     # vendor print can be the previous session without being a failure.
     quote_delayed_stale_after_seconds: float = 120.0
     # Daily bars older than this many sessions are stale. Weekends and
@@ -91,6 +99,10 @@ class Settings(BaseSettings):
     finnhub_api_key: str = ""
     news_ttl_seconds: int = 900
     cors_origins: str = "http://localhost:3000,http://127.0.0.1:3000"
+    # Suggestions refresh price, market cap, and P/E from Yahoo's latest quote.
+    ideas_live_quotes: bool = True
+    # Portfolio marks and new trades use Yahoo's latest published price.
+    provider_marks: bool = True
 
 
 @lru_cache

@@ -10,19 +10,25 @@ from pydantic import ValidationError
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
+from app.ai.local import LocalAssistant, stored_headline_line
+from app.ai.provider import AssistantModel
+from app.core.cache import queue_version_bump
 from app.core.config import settings
 from app.core.exceptions import AppError, NotFoundError
 from app.db.models import ASSET_TYPES, Fundamental, Price, Security
 from app.market_data.calendar import bar_is_stale
 from app.market_data.errors import ProviderError
+from app.market_data.yahoo_article import fetch_article_text
 from app.market_data.yahoo_history import YahooHistoryProvider
 from app.quotes.factory import build_news_source
+from app.quotes.provider_marks import provider_quotes
 from app.quotes.store import QuoteStore, QuoteStoreError
 from app.repositories.price_repository import PriceRepository
 from app.repositories.security_repository import SecurityQuery, SecurityRepository
 from app.schemas.market import (
     HistoricalFreshness,
     NewsItem,
+    NewsReadOut,
     NewsResponse,
     PortfolioNewsResponse,
     PriceBarOut,
@@ -37,11 +43,17 @@ logger = logging.getLogger(__name__)
 class ReferenceService:
     """Read durable security history and the Redis news cache."""
 
-    def __init__(self, session: Session, quotes: QuoteStore) -> None:
+    def __init__(
+        self,
+        session: Session,
+        quotes: QuoteStore,
+        model: AssistantModel | None = None,
+    ) -> None:
         self.session = session
         self.securities = SecurityRepository(session)
         self.prices = PriceRepository(session)
         self.quotes = quotes
+        self.model = model or LocalAssistant()
 
     def get(self, security_id: UUID) -> SecurityOut:
         security = self.securities.get_by_id(security_id)
@@ -98,7 +110,7 @@ class ReferenceService:
         if security is None:
             raise NotFoundError(f"Security {ticker.upper()} not found")
         if ensure_history and self.prices.latest(security.id) is None:
-            self._fill_missing_history(security.ticker)
+            fill_daily_history(self.session, security.ticker)
         fundamental = self.session.scalar(
             select(Fundamental).where(Fundamental.security_id == security.id)
         )
@@ -129,6 +141,13 @@ class ReferenceService:
         latest = bars[-1] if bars else None
         live_quotes = self.quotes.snapshot([security.ticker])
         live_quote = live_quotes[0] if live_quotes else None
+        if settings.provider_marks:
+            fetched = provider_quotes(
+                [security.ticker],
+                self.quotes,
+            ).get(security.ticker)
+            if fetched is not None:
+                live_quote = fetched
         history_updated = self.prices.last_ingested_at(security.id)
         timeliness, history_stale = _bar_freshness(latest.timestamp if latest else None)
         return SecurityProfile(
@@ -276,7 +295,7 @@ class ReferenceService:
             portfolio_id=portfolio_id,
             provider=provider,
             note=_NEWS_NOTE,
-            items=items,
+            items=self._with_briefs(items),
             unavailable=unavailable,
         )
 
@@ -297,6 +316,62 @@ class ReferenceService:
             source=items[0].source,
             provider=items[0].provider or "none",
             items=items,
+        )
+
+    def _with_briefs(self, items: list[NewsItem]) -> list[NewsItem]:
+        """One stored line per headline. The list does not wait on a model."""
+        updated: list[NewsItem] = []
+        for item in items:
+            updated.append(
+                item.model_copy(
+                    update={
+                        "brief": stored_headline_line(item.headline, item.summary),
+                        "brief_source": "stored",
+                    }
+                )
+            )
+        return updated
+
+    def read_story(self, url: str, headline: str) -> NewsReadOut:
+        """Summarize one story the reader opened. The article text is not returned."""
+        try:
+            text = fetch_article_text(url)
+        except ProviderError as exc:
+            raise AppError(str(exc), status_code=502) from exc
+        if len(text) < 80:
+            raise AppError(
+                "This story did not include enough text to summarize.",
+                status_code=502,
+            )
+        source = "excerpt"
+        try:
+            drafted = self.model.summarize_story(headline, text)
+            if getattr(self.model, "interpretation_source", "") == "llm":
+                source = "model"
+        except AppError:
+            logger.info("story_summary_unavailable")
+            drafted = LocalAssistant().summarize_story(headline, text)
+            source = "excerpt"
+        about = str(drafted.get("about") or "").strip()
+        if not about:
+            raise AppError(
+                "This story did not include enough text to summarize.",
+                status_code=502,
+            )
+        points = [
+            str(point).strip()
+            for point in drafted.get("points") or []
+            if str(point).strip()
+        ][:3]
+        return NewsReadOut(
+            headline=headline.strip(),
+            about=about,
+            points=points,
+            source=source,
+            note=(
+                "This is a short reading of the story. "
+                "It is not investment advice and does not predict performance."
+            ),
         )
 
     def _load_many(self, symbols: list[str]) -> dict[str, list[dict]]:
@@ -335,40 +410,43 @@ class ReferenceService:
                 pass
         return stored
 
-    def _fill_missing_history(self, ticker: str) -> None:
-        """One symbol, daily bars only. A miss leaves the profile without a price.
+def fill_daily_history(session: Session, ticker: str) -> None:
+    """Store about a year of daily closes for one symbol.
 
-        Stooq's file download currently returns a browser check, so this
-        fill uses Yahoo's daily chart. It is a stored close, not a live quote.
-        """
-        end = datetime.now(UTC).date()
-        start = end - timedelta(days=370)
-        try:
-            provider = YahooHistoryProvider()
-            MarketDataService(
-                self.session,
-                provider,
-                sleep=lambda _seconds: None,
-            ).ingest(
-                [ticker],
-                start,
-                end,
-                max_securities=1,
-                max_window_days=400,
-                max_attempts=1,
-                pause_seconds=0,
-            )
-        except (ProviderError, ValueError) as exc:
-            logger.warning(
-                "history_fill_failed",
-                extra={"ticker": ticker, "error": str(exc)},
-            )
+    Stooq's file download currently returns a browser check, so this
+    fill uses Yahoo's daily chart. A miss leaves the existing bars in place.
+    The bars are stored closes, not live quotes.
+    """
+    end = datetime.now(UTC).date()
+    start = end - timedelta(days=370)
+    try:
+        provider = YahooHistoryProvider()
+        report = MarketDataService(
+            session,
+            provider,
+            sleep=lambda _seconds: None,
+        ).ingest(
+            [ticker],
+            start,
+            end,
+            max_securities=1,
+            max_window_days=400,
+            max_attempts=1,
+            pause_seconds=0,
+        )
+    except (ProviderError, ValueError) as exc:
+        logger.warning(
+            "history_fill_failed",
+            extra={"ticker": ticker, "error": str(exc)},
+        )
+        return
+    if sum(row.upserted for row in report.results) > 0:
+        queue_version_bump(session, "prices")
 
 
 _NEWS_NOTE = (
-    "Headlines and photos come from the configured news provider for "
-    "open positions. A written summary is shown only when that provider "
-    "sends one."
+    "Click a headline to read what that story is about. "
+    "The summary uses the story text and does not open the publisher page."
 )
 
 

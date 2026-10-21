@@ -1,3 +1,4 @@
+import re
 from datetime import date
 from enum import StrEnum
 from typing import Self
@@ -5,7 +6,7 @@ from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
-from app.schemas.common import DecimalStr, OptionalDecimalStr
+from app.schemas.common import OptionalDecimalStr
 
 # Prefixes for min/max pairs. Text filters are exact labels.
 RANGE_FIELDS = (
@@ -27,7 +28,24 @@ RANGE_FIELDS = (
 
 CRITERIA_FIELDS = tuple(
     f"{name}_{bound}" for name in RANGE_FIELDS for bound in ("min", "max")
-) + ("sector", "industry", "exchange")
+) + ("sector", "industry", "exchange", "asset_type", "search")
+
+ASSET_TYPE_FILTERS = ("equity", "etf", "fund", "index", "other")
+_SEARCH_WORDS = re.compile(r"[a-z0-9][a-z0-9 .&'+-]{0,79}")
+_SEARCH_BLOCKED = frozenset(
+    {
+        "select",
+        "drop",
+        "table",
+        "insert",
+        "update",
+        "delete",
+        "union",
+        "where",
+        "from",
+        "alter",
+    }
+)
 
 
 class ScreenSort(StrEnum):
@@ -84,6 +102,8 @@ class ScreenRequest(BaseModel):
     sector: str | None = None
     industry: str | None = None
     exchange: str | None = None
+    asset_type: str | None = None
+    search: str | None = None
     sort_by: ScreenSort = ScreenSort.TICKER
     sort_direction: SortDirection = SortDirection.ASC
     limit: int = Field(default=20, ge=1, le=100)
@@ -97,8 +117,34 @@ class ScreenRequest(BaseModel):
         stripped = value.strip()
         return stripped.lower() if stripped else None
 
+    @field_validator("asset_type")
+    @classmethod
+    def _normalize_asset_type(cls, value: str | None) -> str | None:
+        if value is None:
+            return None
+        chosen = value.strip().lower()
+        if not chosen:
+            return None
+        if chosen not in ASSET_TYPE_FILTERS:
+            raise ValueError("asset_type must be equity, etf, fund, index, or other")
+        return chosen
+
+    @field_validator("search")
+    @classmethod
+    def _normalize_search(cls, value: str | None) -> str | None:
+        if value is None:
+            return None
+        stripped = " ".join(value.split()).lower()
+        if not stripped:
+            return None
+        if _SEARCH_WORDS.fullmatch(stripped) is None or len(stripped.split()) > 6:
+            raise ValueError("search must be a ticker or a name")
+        if any(word in _SEARCH_BLOCKED for word in stripped.split()):
+            raise ValueError("search must be a ticker or a name")
+        return stripped
+
     @model_validator(mode="after")
-    def _min_lte_max(self) -> Self: #check if the min is less than the max
+    def _min_lte_max(self) -> Self:  # check if the min is less than the max
         pairs = [
             (name, getattr(self, f"{name}_min"), getattr(self, f"{name}_max"))
             for name in RANGE_FIELDS
@@ -113,19 +159,20 @@ class ScreenRequest(BaseModel):
         return self
 
 
-class ScreenHit(BaseModel): #database object is converted to a ScreenHit object
+class ScreenHit(BaseModel):  # database object is converted to a ScreenHit object
     security_id: UUID
     ticker: str
     name: str
     exchange: str
     sector: str
     industry: str | None = None
+    asset_type: str = "equity"
     currency: str
-    as_of: date #date is a datetime.date object
-    roe: DecimalStr
-    pe_ratio: DecimalStr
-    revenue_growth: DecimalStr
-    market_cap: DecimalStr
+    as_of: date | None = None
+    roe: OptionalDecimalStr = None
+    pe_ratio: OptionalDecimalStr = None
+    revenue_growth: OptionalDecimalStr = None
+    market_cap: OptionalDecimalStr = None
     eps: OptionalDecimalStr = None
     revenue: OptionalDecimalStr = None
     profit_margin: OptionalDecimalStr = None
@@ -173,6 +220,8 @@ class ScreenApplied(BaseModel):
     sector: str | None = None
     industry: str | None = None
     exchange: str | None = None
+    asset_type: str | None = None
+    search: str | None = None
     sort_by: ScreenSort = ScreenSort.TICKER
     sort_direction: SortDirection = SortDirection.ASC
 
@@ -198,6 +247,8 @@ class NaturalScreenResponse(BaseModel):
     offset: int
     applied: ScreenApplied
     disclaimer: str
+    note: str | None = None
+    note_source: str | None = None
 
 
 class ScreenResponse(BaseModel):
@@ -209,5 +260,6 @@ class ScreenResponse(BaseModel):
     disclaimer: str = (
         "Synthetic or stored fundamentals, not investment advice. "
         "Ratios are decimals (0.15 = 15%). P/E is a multiple. "
-        "market_cap is USD."
+        "market_cap is USD. A sector or asset type can match a security "
+        "that has no fundamental snapshot. A missing ratio is omitted, not zero."
     )

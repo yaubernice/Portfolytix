@@ -15,7 +15,10 @@ def explain_text(
     service: LearningService = Depends(get_learning_service),
 ) -> ExplainOut:
     return service.explain(
-        body.text, portfolio_id=body.portfolio_id, ticker=body.ticker
+        body.text,
+        portfolio_id=body.portfolio_id,
+        ticker=body.ticker,
+        slug=body.slug,
     )
 
 

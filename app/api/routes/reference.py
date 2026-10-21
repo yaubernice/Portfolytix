@@ -11,6 +11,8 @@ from app.api.dependencies import (
 from app.db.models import User
 from app.schemas.market import (
     HistoricalFreshness,
+    NewsReadIn,
+    NewsReadOut,
     NewsResponse,
     PortfolioNewsResponse,
     SecurityProfile,
@@ -132,6 +134,16 @@ def portfolio_news(
         portfolio_id,
         [row.ticker for row in held],
     )
+
+
+@router.post("/news/read", response_model=NewsReadOut)
+def read_news(
+    body: NewsReadIn,
+    _user: User = Depends(get_current_user),
+    service: ReferenceService = Depends(get_reference_service),
+) -> NewsReadOut:
+    """What one opened story is about. The article text is not returned."""
+    return service.read_story(body.url, body.headline)
 
 
 @router.get("/news", response_model=NewsResponse)

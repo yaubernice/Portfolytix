@@ -6,9 +6,11 @@ from uuid import UUID
 from sqlalchemy.orm import Session
 
 from app.core.cache import queue_version_bump
+from app.core.config import settings
 from app.core.exceptions import AppError, ConflictError, NotFoundError
 from app.db.models import Portfolio, Transaction
 from app.db.models.transaction import TransactionType
+from app.quotes.provider_marks import provider_quotes
 from app.repositories.portfolio_repository import PortfolioRepository
 from app.repositories.security_repository import SecurityRepository
 from app.repositories.transaction_repository import TransactionRepository
@@ -96,6 +98,11 @@ class PortfolioService:
         if security is None:
             raise NotFoundError(f"Security {ticker} not found")
 
+        if payload.quantity != payload.quantity.to_integral_value():
+            raise ConflictError("Buy and sell a whole number of shares.")
+        if payload.quantity < 1:
+            raise ConflictError("The smallest order is 1 share.")
+
         holdings = self._holdings(portfolio_id)
         held = quantity_held(holdings, security.id)
         if payload.transaction_type is TransactionType.SELL and payload.quantity > held:
@@ -104,12 +111,21 @@ class PortfolioService:
                 f"current position is {held}"
             )
 
+        price = payload.price
+        if settings.provider_marks:
+            quote = provider_quotes([ticker]).get(ticker)
+            if quote is None:
+                raise ConflictError(
+                    f"No latest provider price is available for {ticker}."
+                )
+            price = quote.price
+
         row = Transaction(
             portfolio_id=portfolio.id,
             security_id=security.id,
             transaction_type=payload.transaction_type.value,
             quantity=payload.quantity,
-            price=payload.price,
+            price=price,
             timestamp=payload.timestamp or datetime.now(UTC),
         )
         saved = self.transactions.add(row)

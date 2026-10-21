@@ -18,9 +18,14 @@ from app.market_data.finnhub import (
     parse_finnhub_trades,
 )
 from app.quotes.models import quote_from_parts
+from app.quotes.provider_marks import provider_quotes
 from app.quotes.store import MemoryQuoteStore
 from app.services.positions import CostFill, average_cost_positions
-from app.workers.quote_worker import publish_heartbeat, stream_finnhub
+from app.workers.quote_worker import (
+    publish_heartbeat,
+    publish_provider_marks,
+    stream_finnhub,
+)
 from tests.unit.test_assistant import _analytics
 
 
@@ -274,6 +279,84 @@ def test_live_moves_rank_day_change_without_touching_facts() -> None:
     assert metrics["largest_gainer"].startswith("AAPL ")
     assert metrics["day_change:AAPL"]
     assert updated["facts"] == evidence["facts"]
+
+
+def test_provider_quotes_reuse_a_fresh_yahoo_mark(monkeypatch) -> None:
+    monkeypatch.setattr(settings, "provider_marks", True)
+    store = MemoryQuoteStore()
+    quote = quote_from_parts(
+        ticker="AAPL",
+        price=Decimal("339.5"),
+        previous_close=Decimal("341.27"),
+        timestamp=datetime.now(UTC),
+        source="yahoo",
+        timeliness="delayed",
+        received_at=datetime.now(UTC),
+    )
+    store.publish(quote)
+
+    def fail(_tickers: list[str]) -> dict:
+        raise AssertionError("cached Yahoo mark should not be fetched again")
+
+    monkeypatch.setattr("app.quotes.provider_marks.fetch_latest_quotes", fail)
+    found = provider_quotes(["aapl"], store)
+    assert found["AAPL"].price == Decimal("339.5")
+
+
+def test_provider_quotes_replace_a_simulated_print(monkeypatch) -> None:
+    monkeypatch.setattr(settings, "provider_marks", True)
+    store = MemoryQuoteStore()
+    store.publish(
+        quote_from_parts(
+            ticker="AAPL",
+            price=Decimal("1"),
+            timestamp=datetime.now(UTC),
+            source="simulator",
+            timeliness="simulated",
+        )
+    )
+    calls: list[list[str]] = []
+
+    def fake(tickers: list[str]) -> dict:
+        calls.append(list(tickers))
+        return {
+            "AAPL": {
+                "price": Decimal("10"),
+                "previous_close": Decimal("9"),
+                "quoted_at": datetime.now(UTC),
+            }
+        }
+
+    monkeypatch.setattr("app.quotes.provider_marks.fetch_latest_quotes", fake)
+    found = provider_quotes(["AAPL"], store)
+    assert calls == [["AAPL"]]
+    assert found["AAPL"].source == "yahoo"
+    assert store.snapshot(["AAPL"])[0].source == "yahoo"
+
+
+def test_provider_mark_pass_writes_the_shared_cache(monkeypatch) -> None:
+    store = MemoryQuoteStore()
+    monkeypatch.setattr(
+        "app.workers.quote_worker.load_quote_symbols",
+        lambda: ["AAPL"],
+    )
+
+    def fake(tickers: list[str], store: MemoryQuoteStore, *, refresh: bool) -> dict:
+        assert tickers == ["AAPL"]
+        assert refresh is True
+        quote = quote_from_parts(
+            ticker="AAPL",
+            price=Decimal("339.5"),
+            timestamp=datetime.now(UTC),
+            source="yahoo",
+            timeliness="delayed",
+        )
+        store.publish(quote)
+        return {"AAPL": quote}
+
+    monkeypatch.setattr("app.workers.quote_worker.provider_quotes", fake)
+    assert publish_provider_marks(store) == ["AAPL"]
+    assert store.snapshot()[0].source == "yahoo"
 
 
 def test_finnhub_stream_backs_off_after_a_dropped_socket(monkeypatch) -> None:

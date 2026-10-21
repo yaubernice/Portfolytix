@@ -68,10 +68,16 @@ class Recommendation(BaseModel):
     sector: str
     roe: OptionalDecimalStr = None
     pe_ratio: OptionalDecimalStr = None
+    market_cap: OptionalDecimalStr = None
+    price: OptionalDecimalStr = None
+    quoted_at: datetime | None = None
     reason: str
+    points: list[str] = []
 
 
 class RecommendationResponse(BaseModel):
     portfolio_id: UUID
+    commentary: str | None = None
+    commentary_source: str | None = None
     disclaimer: str
     items: list[Recommendation]

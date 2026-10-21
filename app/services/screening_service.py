@@ -18,7 +18,7 @@ from app.schemas.screening import (
     ScreenResponse,
 )
 
-SCREENING_CACHE_SCHEMA = "v2"
+SCREENING_CACHE_SCHEMA = "v4"
 
 
 class ScreeningService:
@@ -49,7 +49,7 @@ class ScreeningService:
             sort_by=payload.sort_by,
             sort_direction=payload.sort_direction,
         )
-        response = ScreenResponse( #return the response object to the API layer
+        response = ScreenResponse(  # return the response object to the API layer
             items=[_hit(security, row) for security, row in rows],
             total=total,
             limit=payload.limit,
@@ -77,8 +77,9 @@ class ScreeningService:
         return f"screen:{SCREENING_CACHE_SCHEMA}:fundamentals-v{version}:{digest}"
 
 
-def _hit(security: Security, row: Fundamental) -> ScreenHit:
+def _hit(security: Security, row: Fundamental | None) -> ScreenHit:
     # Transform SQLAlchemy rows into an API response object.
+    # A listing with no snapshot keeps its identity and leaves ratios empty.
     return ScreenHit(
         security_id=security.id,
         ticker=security.ticker,
@@ -86,22 +87,23 @@ def _hit(security: Security, row: Fundamental) -> ScreenHit:
         exchange=security.exchange,
         sector=security.sector,
         industry=security.industry,
+        asset_type=security.asset_type,
         currency=security.currency,
-        as_of=row.as_of,
-        roe=row.roe,
-        pe_ratio=row.pe_ratio,
-        revenue_growth=row.revenue_growth,
-        market_cap=row.market_cap,
-        eps=row.eps,
-        revenue=row.revenue,
-        profit_margin=row.profit_margin,
-        dividend_yield=row.dividend_yield,
-        beta=row.beta,
-        ebitda=row.ebitda,
-        shares_outstanding=row.shares_outstanding,
-        price_to_book=row.price_to_book,
-        price_to_sales=row.price_to_sales,
-        roa=row.roa,
-        earnings_growth=row.earnings_growth,
-        provider=row.provider,
+        as_of=None if row is None else row.as_of,
+        roe=None if row is None else row.roe,
+        pe_ratio=None if row is None else row.pe_ratio,
+        revenue_growth=None if row is None else row.revenue_growth,
+        market_cap=None if row is None else row.market_cap,
+        eps=None if row is None else row.eps,
+        revenue=None if row is None else row.revenue,
+        profit_margin=None if row is None else row.profit_margin,
+        dividend_yield=None if row is None else row.dividend_yield,
+        beta=None if row is None else row.beta,
+        ebitda=None if row is None else row.ebitda,
+        shares_outstanding=None if row is None else row.shares_outstanding,
+        price_to_book=None if row is None else row.price_to_book,
+        price_to_sales=None if row is None else row.price_to_sales,
+        roa=None if row is None else row.roa,
+        earnings_growth=None if row is None else row.earnings_growth,
+        provider=None if row is None else row.provider,
     )

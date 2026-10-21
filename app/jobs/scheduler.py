@@ -18,10 +18,24 @@ logger = logging.getLogger(__name__)
 
 
 def run_scheduled_update_market_data() -> None:
-    """Open a session, ingest, commit. Runs on a thread, not the event loop."""
+    """Open a session, ingest holdings and watchlists, commit.
+
+    Runs on a thread, not the event loop. An empty book does not fall
+    back to the demo tickers.
+    """
+    from app.quotes.symbols import load_book_symbols
+
     session = SessionLocal()
     try:
-        update_market_data(session, trigger="scheduler")
+        tickers = load_book_symbols(
+            session,
+            limit=settings.market_data_max_securities,
+        )
+        logger.info(
+            "scheduled_history_symbols",
+            extra={"count": len(tickers)},
+        )
+        update_market_data(session, tickers=tickers, trigger="scheduler")
         commit_and_invalidate(session, get_cache())
     except Exception:
         session.rollback()

@@ -18,14 +18,17 @@ def _security(
     sector: str = "Technology",
     industry: str | None = None,
     exchange: str = "NASDAQ",
+    asset_type: str = "equity",
+    name: str | None = None,
 ) -> Security:
     row = Security(
         ticker=ticker,
-        name=f"{ticker} Inc.",
+        name=name or f"{ticker} Inc.",
         exchange=exchange,
         sector=sector,
         industry=industry,
         currency="USD",
+        asset_type=asset_type,
     )
     session.add(row)
     session.flush()
@@ -66,17 +69,13 @@ def _seed_seven(session: Session) -> None:
     )
     for ticker, sector, roe, pe, growth, mcap in specs:
         security = _security(session, ticker, sector=sector)
-        _fundamentals(
-            session, security, roe=roe, pe=pe, growth=growth, mcap=mcap
-        )
+        _fundamentals(session, security, roe=roe, pe=pe, growth=growth, mcap=mcap)
 
 
 def test_dividend_filter_skips_a_null_yield(sqlite_session: Session) -> None:
     apple = _security(sqlite_session, "AAPL")
     meta = _security(sqlite_session, "META")
-    _fundamentals(
-        sqlite_session, apple, roe="0.35", pe="28", growth="0.08", mcap="100"
-    )
+    _fundamentals(sqlite_session, apple, roe="0.35", pe="28", growth="0.08", mcap="100")
     paying = _fundamentals(
         sqlite_session, meta, roe="0.32", pe="24", growth="0.16", mcap="100"
     )
@@ -101,6 +100,104 @@ def test_example_screen_returns_googl_and_meta(sqlite_session: Session) -> None:
     assert [hit.ticker for hit in result.items] == ["GOOGL", "META"]
     assert result.total == 2
     assert result.applied.roe_min == Decimal("0.15")
+
+
+def test_sector_screen_includes_a_listing_without_a_snapshot(
+    sqlite_session: Session,
+) -> None:
+    apple = _security(sqlite_session, "AAPL")
+    _fundamentals(sqlite_session, apple, roe="0.35", pe="28", growth="0.08", mcap="100")
+    _security(sqlite_session, "AUDC")
+    _security(sqlite_session, "JPM", sector="Financials")
+    result = ScreeningService(sqlite_session).screen(ScreenRequest(sector="technology"))
+    assert [hit.ticker for hit in result.items] == ["AAPL", "AUDC"]
+    missing = next(hit for hit in result.items if hit.ticker == "AUDC")
+    assert missing.roe is None
+    assert missing.as_of is None
+
+
+def test_etf_screen_returns_the_etf_and_not_an_equity(
+    sqlite_session: Session,
+) -> None:
+    _security(
+        sqlite_session,
+        "VOO",
+        sector="",
+        asset_type="etf",
+        name="Vanguard S&P 500 ETF",
+    )
+    _security(
+        sqlite_session,
+        "VOOB",
+        sector="",
+        asset_type="etf",
+        name="VistaShares Shield S&P 500 Enhanced Protection ETF",
+    )
+    _security(
+        sqlite_session,
+        "KTEC",
+        sector="",
+        asset_type="etf",
+        name="KraneShares Hang Seng TECH Index ETF",
+    )
+    nvidia = _security(sqlite_session, "NVDA")
+    _fundamentals(
+        sqlite_session, nvidia, roe="0.70", pe="45", growth="0.80", mcap="100"
+    )
+    etfs = ScreeningService(sqlite_session).screen(ScreenRequest(asset_type="etf"))
+    assert [hit.ticker for hit in etfs.items] == ["KTEC", "VOO", "VOOB"]
+    voo = ScreeningService(sqlite_session).screen(ScreenRequest(search="VOO"))
+    assert [hit.ticker for hit in voo.items] == ["VOO"]
+    hang = ScreeningService(sqlite_session).screen(ScreenRequest(search="hang seng"))
+    assert [hit.ticker for hit in hang.items] == ["KTEC"]
+
+
+def test_china_search_matches_a_china_name_and_skips_an_ex_china_fund(
+    sqlite_session: Session,
+) -> None:
+    _security(
+        sqlite_session,
+        "CAAS",
+        sector="",
+        name="China Automotive Systems, Inc.",
+    )
+    _security(
+        sqlite_session,
+        "EMXC",
+        sector="",
+        asset_type="etf",
+        name="iShares MSCI Emerging Markets ex China ETF",
+    )
+    result = ScreeningService(sqlite_session).screen(ScreenRequest(search="china"))
+    assert [hit.ticker for hit in result.items] == ["CAAS"]
+
+
+def test_inactive_benchmark_is_left_out_of_a_sector_screen(
+    sqlite_session: Session,
+) -> None:
+    apple = _security(sqlite_session, "AAPL")
+    _fundamentals(
+        sqlite_session, apple, roe="0.35", pe="28", growth="0.08", mcap="100"
+    )
+    bench = _security(sqlite_session, "BENCH00000000004")
+    bench.is_active = False
+    sqlite_session.flush()
+    result = ScreeningService(sqlite_session).screen(
+        ScreenRequest(sector="technology")
+    )
+    assert [hit.ticker for hit in result.items] == ["AAPL"]
+
+
+def test_ratio_screen_still_requires_a_snapshot(
+    sqlite_session: Session,
+) -> None:
+    apple = _security(sqlite_session, "AAPL")
+    _fundamentals(sqlite_session, apple, roe="0.35", pe="28", growth="0.08", mcap="100")
+    _security(sqlite_session, "AUDC")
+    result = ScreeningService(sqlite_session).screen(
+        ScreenRequest(sector="technology", roe_min=Decimal("0.15"))
+    )
+    assert [hit.ticker for hit in result.items] == ["AAPL"]
 
 
 def test_empty_screen_returns_all_with_fundamentals(
@@ -141,9 +238,7 @@ def test_pagination_is_stable_by_ticker(sqlite_session: Session) -> None:
 
 def test_sector_filter_is_case_insensitive(sqlite_session: Session) -> None:
     _seed_seven(sqlite_session)
-    result = ScreeningService(sqlite_session).screen(
-        ScreenRequest(sector="technology")
-    )
+    result = ScreeningService(sqlite_session).screen(ScreenRequest(sector="technology"))
     assert {hit.ticker for hit in result.items} == {"AAPL", "MSFT", "NVDA"}
 
 

@@ -6,9 +6,11 @@ import LearnTerm from "../../../components/LearnTerm";
 import Nav from "../../../components/Nav";
 import NewsList from "../../../components/NewsList";
 import {
+  CompanyLogo,
   dateTime,
   EmptyState,
   ErrorState,
+  InteractiveChart,
   money,
   number,
   percent,
@@ -20,14 +22,14 @@ import { api } from "../../../lib/api";
 const PERIODS = ["1D", "1W", "1M", "3M", "1Y", "MAX"];
 
 function quoteStatus(quote) {
-  if (!quote) return "UNAVAILABLE";
+  if (!quote) return { label: "Unavailable", tone: "unavailable" };
   const value = String(quote.timeliness || "").toLowerCase();
-  if (value === "realtime" || value === "live") return "LIVE";
-  if (value === "simulated") return "SIMULATED";
-  if (value === "stale" || quote.is_stale) return "STALE";
-  if (value === "delayed") return "DELAYED";
-  if (value === "historical") return "HISTORICAL";
-  return "UNAVAILABLE";
+  if (value === "realtime" || value === "live") return { label: "Real-time", tone: "realtime" };
+  if (value === "simulated") return { label: "Simulated", tone: "simulated" };
+  if (value === "stale" || quote.is_stale) return { label: "Stale", tone: "stale" };
+  if (value === "delayed") return { label: "Delayed", tone: "delayed" };
+  if (value === "historical") return { label: "Historical", tone: "historical" };
+  return { label: "Unavailable", tone: "unavailable" };
 }
 
 function ageLabel(seconds) {
@@ -48,26 +50,15 @@ function FundamentalGroup({ title, children }) {
 }
 
 function HistoryChart({ prices, ticker }) {
-  const rows = prices || [];
-  const points = rows.map((row) => Number(row.close)).filter(Number.isFinite);
-  if (!points.length) return <EmptyState title="No historical data">No stored PostgreSQL bars exist for this period.</EmptyState>;
-  const min = Math.min(...points);
-  const max = Math.max(...points);
-  const span = max - min || 1;
-  const coordinates = points.map((value, index) => {
-    const x = points.length === 1 ? 50 : (index / (points.length - 1)) * 100;
-    const y = 92 - ((value - min) / span) * 84;
-    return `${x},${y}`;
-  }).join(" ");
+  const rows = (prices || []).filter((row) => Number.isFinite(Number(row.close)));
+  if (!rows.length) return <EmptyState title="No historical data">No stored PostgreSQL bars exist for this period.</EmptyState>;
   return (
     <>
-      <div className="history-chart" role="img" aria-label={`${ticker} adjusted closing prices, from ${rows[0].date} to ${rows[rows.length - 1].date}`}>
-        <svg viewBox="0 0 100 100" preserveAspectRatio="none" aria-hidden="true">
-          {points.length > 1 ? <polyline points={coordinates} fill="none" stroke="currentColor" strokeWidth="1.7" vectorEffect="non-scaling-stroke" /> : null}
-          {points.length === 1 ? <circle cx="50" cy="50" r="2.5" fill="currentColor" /> : null}
-        </svg>
-        <div className="chart-range"><span>{rows[0].date}</span><strong>{money(rows[rows.length - 1].close)}</strong><span>{rows[rows.length - 1].date}</span></div>
-      </div>
+      <InteractiveChart
+        rows={rows.map((row) => ({ date: row.date, value: row.close }))}
+        label={`${ticker} adjusted close`}
+        formatValue={(value) => money(value)}
+      />
       <details className="chart-data">
         <summary>View chart data table ({rows.length} observations)</summary>
         <div className="table-wrap">
@@ -92,7 +83,7 @@ export default function SecurityPage() {
   const [watchlistId, setWatchlistId] = useState("");
   const [portfolioId, setPortfolioId] = useState("");
   const [quantity, setQuantity] = useState("1");
-  const [price, setPrice] = useState("");
+  const [side, setSide] = useState("BUY");
   const [loading, setLoading] = useState(true);
   const [historyLoading, setHistoryLoading] = useState(false);
   const [submitting, setSubmitting] = useState(false);
@@ -110,11 +101,7 @@ export default function SecurityPage() {
         initial ? api(`/news?ticker=${encodeURIComponent(ticker)}`).catch(() => null) : Promise.resolve(news),
       ]);
       setProfile(nextProfile);
-      if (initial) {
-        setNews(nextNews);
-        const defaultPrice = nextProfile.live_quote?.price;
-        if (defaultPrice) setPrice(String(defaultPrice));
-      }
+      if (initial) setNews(nextNews);
     } catch (err) {
       setError(err.message);
     } finally {
@@ -141,9 +128,10 @@ export default function SecurityPage() {
   const priorBar = bars.length > 1 ? bars[bars.length - 2] : null;
   const usingClose = !quote && lastBar;
   const shownPrice = quote?.price ?? lastBar?.close;
+  const tradePrice = quote?.price ?? null;
   const priorClose = quote?.previous_close ?? priorBar?.close;
   const change = shownPrice != null && priorClose != null ? Number(shownPrice) - Number(priorClose) : null;
-  const status = usingClose ? "HISTORICAL" : quoteStatus(quote);
+  const status = usingClose ? { label: "Historical", tone: "historical" } : quoteStatus(quote);
   const changeTone = change > 0 ? "up" : change < 0 ? "down" : "";
   const freshnessTitle = quote
     ? `Source: ${quote.source}; timestamp: ${dateTime(quote.provider_timestamp || quote.timestamp)}; ${ageLabel(quote.age_seconds)}`
@@ -175,13 +163,28 @@ export default function SecurityPage() {
   async function addToPortfolio(event) {
     event.preventDefault();
     if (!portfolioId) return;
+    const shares = Number(quantity);
+    if (!Number.isInteger(shares) || shares < 1) {
+      setToast({ message: "Enter a whole number of shares, at least 1.", tone: "error" });
+      return;
+    }
+    if (tradePrice == null) {
+      setToast({ message: "No latest provider price is available for this order.", tone: "error" });
+      return;
+    }
     setSubmitting(true);
     try {
       await api(`/portfolios/${portfolioId}/transactions`, {
         method: "POST",
-        body: JSON.stringify({ ticker, transaction_type: "BUY", quantity, price }),
+        body: JSON.stringify({
+          ticker,
+          transaction_type: side,
+          quantity: String(shares),
+          price: String(tradePrice),
+        }),
       });
-      setToast({ message: `${ticker} purchase added to portfolio`, tone: "success" });
+      const verb = side === "SELL" ? "sale" : "purchase";
+      setToast({ message: `${ticker} ${verb} added to portfolio`, tone: "success" });
     } catch (err) {
       setToast({ message: err.message, tone: "error" });
     } finally {
@@ -198,8 +201,8 @@ export default function SecurityPage() {
         {!loading && profile ? (
           <div className="stack">
             <header className="page-header security-header">
-              <div><p className="eyebrow">Security</p><h1>{profile.ticker} <span>{profile.name}</span></h1><p className="muted">{profile.exchange} · {profile.sector || "Sector unavailable"} · {profile.currency}</p></div>
-              <span className={`quote-status quote-status-${status.toLowerCase()}`} title={freshnessTitle} aria-label={`${status}. ${freshnessTitle}`}>{status} <span aria-hidden="true">ⓘ</span></span>
+              <div className="security-identity"><CompanyLogo ticker={profile.ticker} size={52} /><div><p className="eyebrow">Security</p><h1>{profile.ticker} <span>{profile.name}</span></h1><p className="muted">{profile.exchange} · {profile.sector || "Sector unavailable"} · {profile.currency}</p></div></div>
+              <span className={`quote-status quote-status-${status.tone}`} title={freshnessTitle} aria-label={`${status.label}. ${freshnessTitle}`}>{status.label}</span>
             </header>
 
             <section className="current-quote" aria-labelledby="current-quote-title">
@@ -210,7 +213,7 @@ export default function SecurityPage() {
                 <Metric label="Bid" value={money(quote?.bid, profile.currency)} />
                 <Metric label="Ask" value={money(quote?.ask, profile.currency)} />
               </dl>
-              <p className="quote-source" title={freshnessTitle}>{quote ? `${quote.source} · market ${dateTime(quote.provider_timestamp || quote.timestamp)} · received ${dateTime(quote.received_at)} · print ${ageLabel(quote.age_seconds)}` : usingClose ? `${profile.history_source || "stored"} · session ${dateTime(profile.latest_close_at)} · historical close` : "No live quote is published for this symbol, and the historical provider returned no daily price."}</p>
+              <p className="quote-source" title={freshnessTitle}>{quote ? `${status.label} ${quote.source} print ${dateTime(quote.provider_timestamp || quote.timestamp)} · received ${dateTime(quote.received_at)} · ${ageLabel(quote.age_seconds)}. Refreshing this page does not make a delayed print real-time.` : usingClose ? `${profile.history_source || "stored"} close for the session ${dateTime(profile.latest_close_at)}. This is a stored bar, not a live quote.` : "No quote is published for this symbol, and no daily close is stored."}</p>
             </section>
 
             <div className="split-grid">
@@ -231,14 +234,14 @@ export default function SecurityPage() {
                 </section>
 
                 <section className="panel" aria-labelledby="news-title">
-                  <div className="panel-header"><div><h2 id="news-title">Recent news</h2><p className="muted">Provider: {news?.provider || "none"}</p></div></div>
+                  <div className="panel-header"><div><h2 id="news-title">Recent news</h2><p className="muted">Click a headline to read what that story is about. Provider: {news?.provider || "none"}.</p></div></div>
                   {!news?.items?.length ? <EmptyState title="No recent provider news">No headlines are available for this security.</EmptyState> : <NewsList items={news.items} provider={news.provider} />}
                 </section>
               </div>
 
               <aside className="stack" aria-label="Security actions">
                 <section className="panel"><h2>Add to watchlist</h2>{watchlists.length ? <form onSubmit={addToWatchlist}><label className="field">Watchlist<select value={watchlistId} onChange={(event) => setWatchlistId(event.target.value)}>{watchlists.map((item) => <option value={item.id} key={item.id}>{item.name}</option>)}</select></label><button className="primary" disabled={submitting} type="submit">Add {ticker}</button></form> : <EmptyState title="No watchlists">Create a watchlist before adding this security.</EmptyState>}</section>
-                <section className="panel"><h2>Add to portfolio</h2>{portfolios.length ? <form onSubmit={addToPortfolio}><label className="field">Portfolio<select value={portfolioId} onChange={(event) => setPortfolioId(event.target.value)}>{portfolios.map((item) => <option value={item.id} key={item.id}>{item.name}</option>)}</select></label><label className="field">Quantity<input type="number" min="0.00000001" step="any" required value={quantity} onChange={(event) => setQuantity(event.target.value)} /></label><label className="field">Price ({profile.currency})<input type="number" min="0.000001" step="any" required value={price} onChange={(event) => setPrice(event.target.value)} /></label><p className="muted">Creates a BUY transaction. Price defaults to the current quote when available.</p><button className="primary" disabled={submitting} type="submit">Add transaction</button></form> : <EmptyState title="No portfolios">Create a portfolio before adding a transaction.</EmptyState>}</section>
+                <section className="panel"><h2>Trade</h2>{portfolios.length ? <form onSubmit={addToPortfolio}><label className="field">Portfolio<select value={portfolioId} onChange={(event) => setPortfolioId(event.target.value)}>{portfolios.map((item) => <option value={item.id} key={item.id}>{item.name}</option>)}</select></label><div className="row" role="group" aria-label="Order side"><button type="button" aria-pressed={side === "BUY"} onClick={() => setSide("BUY")}>Buy</button><button type="button" aria-pressed={side === "SELL"} onClick={() => setSide("SELL")}>Sell</button></div><label className="field">Shares<input type="number" min="1" step="1" inputMode="numeric" required value={quantity} onChange={(event) => setQuantity(event.target.value)} /></label><p className="muted">Price {tradePrice != null ? money(tradePrice, profile.currency) : "unavailable"}. This is the latest provider quote for one share. Orders are whole shares, and the smallest order is 1 share.</p><button className="primary" disabled={submitting || tradePrice == null} type="submit">{side === "SELL" ? "Sell" : "Buy"} {ticker}</button></form> : <EmptyState title="No portfolios">Create a portfolio before adding a transaction.</EmptyState>}</section>
                 <section className="panel"><h2>Reference metadata</h2><dl className="detail-list"><Metric label="Asset type" value={profile.asset_type} /><Metric label="Industry" value={profile.industry || "—"} /><Metric label="Country" value={profile.country || "—"} /><Metric label="MIC" value={profile.mic || "—"} /><Metric label="Profile provider" value={profile.provider} /><Metric label="Provider symbol" value={profile.provider_symbol || "—"} /></dl></section>
               </aside>
             </div>

@@ -1,10 +1,5 @@
-import { Suspense } from "react";
-import LearnArticle from "./article";
+import { redirect } from "next/navigation";
 
 export default function LearnTermPage() {
-  return (
-    <Suspense fallback={null}>
-      <LearnArticle />
-    </Suspense>
-  );
+  redirect("/dashboard");
 }

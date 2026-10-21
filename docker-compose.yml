@@ -3,7 +3,7 @@ services:
     image: postgres:16-alpine
     environment:
       POSTGRES_USER: finsight
-      POSTGRES_PASSWORD: finsight
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-finsight}
       POSTGRES_DB: finsight
     ports:
       - "15432:5432"
@@ -33,13 +33,13 @@ services:
     ports:
       - "18421:8000"
     environment:
-      APP_NAME: FinSight
+      APP_NAME: Portfolytix
       ENVIRONMENT: local
       LOG_LEVEL: INFO
-      DATABASE_URL: postgresql+psycopg://finsight:finsight@db:5432/finsight
+      DATABASE_URL: postgresql+psycopg://finsight:${POSTGRES_PASSWORD:-finsight}@db:5432/finsight
       RISK_FREE_RATE: "0.05"
       TRADING_DAYS_PER_YEAR: "252"
-      MARKET_DATA_PROVIDER: stooq
+      MARKET_DATA_PROVIDER: ${MARKET_DATA_PROVIDER:-stooq}
       MARKET_DATA_API_KEY: ${MARKET_DATA_API_KEY:-}
       SCHEDULER_ENABLED: "true"
       MARKET_DATA_CRON: "0 22 * * *"
@@ -58,16 +58,16 @@ services:
       SCREENING_CACHE_TTL_SECONDS: "300"
       REDIS_SOCKET_TIMEOUT_SECONDS: "0.2"
       JWT_SECRET_KEY: ${JWT_SECRET_KEY:-dev-only-change-this-secret-at-least-32-bytes}
+      AI_PROVIDER: ${AI_PROVIDER:-local}
+      AI_OPENAI_API: ${AI_OPENAI_API:-responses}
+      AI_BASE_URL: ${AI_BASE_URL:-https://api.openai.com/v1}
+      AI_MODEL: ${AI_MODEL:-gpt-4o-mini}
+      AI_TIMEOUT_SECONDS: ${AI_TIMEOUT_SECONDS:-20}
       JWT_ALGORITHM: HS256
       JWT_ISSUER: finsight
       JWT_ACCESS_TOKEN_MINUTES: "30"
-      AI_PROVIDER: local
-      AI_OPENAI_API: responses
-      AI_FALLBACK_TO_LOCAL: "true"
+      AI_FALLBACK_TO_LOCAL: ${AI_FALLBACK_TO_LOCAL:-true}
       AI_API_KEY: ${AI_API_KEY:-}
-      AI_BASE_URL: https://api.openai.com/v1
-      AI_MODEL: gpt-4o-mini
-      AI_TIMEOUT_SECONDS: "20"
       QUOTE_PROVIDER: ${QUOTE_PROVIDER:-simulator}
       QUOTE_SYMBOLS: AAPL,MSFT,NVDA,AMZN,GOOGL,META,TSLA
       QUOTE_POLL_SECONDS: "2"
@@ -83,7 +83,7 @@ services:
       NEWS_PROVIDER: ${NEWS_PROVIDER:-}
       FINNHUB_API_KEY: ${FINNHUB_API_KEY:-}
       NEWS_TTL_SECONDS: "900"
-      CORS_ORIGINS: http://localhost:3000,http://127.0.0.1:3000
+      CORS_ORIGINS: ${CORS_ORIGINS:-http://localhost:3000,http://127.0.0.1:3000}
     depends_on:
       db:
         condition: service_healthy
@@ -107,9 +107,9 @@ services:
     build: .
     command: ["python", "-m", "app.workers.quote_worker"]
     environment:
-      APP_NAME: FinSight
+      APP_NAME: Portfolytix
       ENVIRONMENT: local
-      DATABASE_URL: postgresql+psycopg://finsight:finsight@db:5432/finsight
+      DATABASE_URL: postgresql+psycopg://finsight:${POSTGRES_PASSWORD:-finsight}@db:5432/finsight
       CACHE_ENABLED: "true"
       REDIS_URL: redis://redis:6379/0
       CACHE_KEY_PREFIX: finsight
@@ -155,7 +155,7 @@ services:
     ports:
       - "3000:3000"
     environment:
-      NEXT_PUBLIC_API_URL: http://127.0.0.1:18421
+      NEXT_PUBLIC_API_URL: ${NEXT_PUBLIC_API_URL:-http://127.0.0.1:18421}
     depends_on:
       - api
     restart: unless-stopped
