@@ -1,3 +1,5 @@
+
+const API_BASE_URL = "https://portfolytix-9839b.containers.snapdeploy.app";
 const tokenKey = "finsight_token";
 const authPanel = document.querySelector("#auth");
 const appPanel = document.querySelector("#app");
@@ -239,7 +241,7 @@ async function api(path, options = {}) {
   if (options.body) headers["Content-Type"] = "application/json";
   const token = sessionStorage.getItem(tokenKey);
   if (token) headers.Authorization = `Bearer ${token}`;
-  const response = await fetch(path, { ...options, headers });
+  const response = await fetch(`${API_BASE_URL}${path}`, { ...options, headers });
   const text = await response.text();
   const data = text ? JSON.parse(text) : null;
   if (!response.ok) {
